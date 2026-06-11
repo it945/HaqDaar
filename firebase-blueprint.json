@@ -1,0 +1,48 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile for beneficiaries or merchants",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["beneficiary", "merchant", "admin"] },
+        "balance": { "type": "number" },
+        "isVerified": { "type": "boolean" },
+        "cnic": { "type": "string" },
+        "phone": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "role", "cnic", "phone"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Payment or aid transaction record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "beneficiaryId": { "type": "string" },
+        "merchantId": { "type": "string" },
+        "amount": { "type": "number" },
+        "store": { "type": "string" },
+        "status": { "type": "string" },
+        "icon": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["beneficiaryId", "merchantId", "amount", "store", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Collection of all users (beneficiaries and merchants)"
+    },
+    "/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Collection of all transactions"
+    }
+  }
+}

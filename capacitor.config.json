@@ -1,0 +1,8 @@
+{
+  "appId": "pk.haqdaar.app",
+  "appName": "HaqDaar",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  }
+}

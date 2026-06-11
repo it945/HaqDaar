@@ -1,0 +1,6 @@
+{
+  "name": "HaqDaar",
+  "description": "Empowering transparent aid distribution through secure identity and instant verification.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": []
+}

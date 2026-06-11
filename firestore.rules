@@ -1,0 +1,31 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ROLE-BASED ACCESS FOR DEMO
+
+    // 1. Users can access their own document
+    match /users/{userId} {
+      allow read, write: if true; // In a real app, check request.auth.uid == userId
+
+      // Transactions sub-collection
+      match /transactions/{txId} {
+        allow read, write: if true;
+      }
+    }
+
+    // 2. Global Trust Pool
+    match /system/trust_account {
+      allow read, write: if true; // In a real app, restrict to Admin/Donor
+    }
+
+    // 3. Admin-only oversight
+    match /withdrawal_requests/{reqId} {
+      allow read, write: if true; // In a real app, restrict to Admin
+    }
+
+    // Allow all for demo
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}
