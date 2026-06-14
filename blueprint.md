@@ -1,40 +1,49 @@
-# HaqDaar - Secure Digital Funding Platform (Web/Mobile Capacitor)
+# HaqDaar - No-Custody Donor-Donee Transparency Platform
 
-## Overview
+## 1. Executive Summary
+HaqDaar is a transparency-first platform connecting donors with manually verified donees. It is intentionally designed as a **no-custody** system. The platform does not receive, hold, or process donation money. Instead, it records direct external payments and monitors how aid is used at local shops via a "Trust Agent" settlement model.
 
-HaqDaar is a platform that enables non-profit organisations to distribute aid digitally through unique, tamper-proof QR tokens. This version uses a **Centralized Trust Account Model** for better accountability and simpler user flows.
+## 2. No-Custody & Trust Agent Model
+- **Zero Custody**: All donor payments happen directly to the Donee's EasyPaisa account outside the app.
+- **Trust Agent (Shopkeeper)**: Shopkeepers provide goods/services to Donees on a credit basis after scanning their physical QR cards.
+- **Admin Settlement**: Admins facilitate weekly transfers from Donee accounts to Shopkeeper accounts based on the app's spending records.
+- **Impact Wallet**: A record-only interface for donors to track their verified donation proofs and subsequent spending updates.
 
-## Centralized Trust Model (As Implemented)
+## 3. User Roles
+- **Admin**: 
+  - Verifies donees offline and prints physical QR cards.
+  - Verifies donor payment proofs (screenshots).
+  - Generates weekly settlement reports for Shopkeepers.
+  - Oversees the transfer of funds from Donee to Shopkeeper accounts.
+- **Donor**: 
+  - Browses verified donees and pays them directly via EasyPaisa deep links.
+  - Uploads proof of payment.
+  - Receives transparency notifications when goods are released.
+- **Shopkeeper (Trust Agent)**: 
+  - Scans Donee's physical QR card to verify identity and available credit.
+  - Releases goods on credit and records the items in the app.
+  - Receives bulk settlement from Admin weekly.
+- **Donee (Recipient)**: 
+  - No phone required. Uses a physical Identity QR Card.
+  - Receives funds in a personal EasyPaisa account (set up by Admin).
+  - Picks up goods from authorized shopkeepers.
 
-### Core Roles
-- **Donor**: Contributes funds directly to the Global Trust Pool. Can view impact stats but has no personal balance.
-- **Admin**: Manages the Trust Pool, disburses aid to recipients by scanning their IDs, and oversees system-wide activity.
-- **Recipient (HaqDaar)**: Receives allocated aid into a personal digital wallet and can withdraw funds to bank or cash.
+## 4. Key Technical Concepts
+- **Physical Identity QR**: A printed card for the Donee containing their unique ID and photo verification link.
+- **Deep Link Payments**: "Pay Now" buttons that launch the donor's EasyPaisa app with the Donee's number pre-filled.
+- **Settlement Ledger**: Tracks `spending_records` and their status (`pending_settlement` vs `settled`).
 
-### Technical Stack
-- **Frontend**: React 19, TypeScript, Vite.
-- **Styling**: Tailwind CSS.
-- **Animations**: Framer Motion.
-- **Backend**: Firebase Firestore (Centralized Trust documents).
-- **Mobile Container**: Capacitor (Cross-platform Android/iOS).
+## 5. Terminology (Mandatory)
+- **Use**: Impact Wallet (records only), Direct donation proof, Spending identity QR, Credit Release, Admin Settlement, Pending verification.
+- **Avoid**: Wallet balance, Top-up, Withdraw, Cash balance.
 
-## UI & Dashboard Features
+## 6. Technical Stack
+- **Frontend**: React 19, TypeScript, Vite (Mobile-first PWA).
+- **Backend**: Firebase Firestore & Storage.
+- **Mobile Container**: Capacitor.
 
-### Dynamic Home Screen
-- **Global Pool View**: Donors and Admins see the current size of the community vault and total distribution stats.
-- **Recipient Wallet**: Beneficiaries see their specific "Available Aid" and recent receipt history.
-
-### Role-Based Actions
-- **Quick Donate**: High-friction-less interface for donors to feed the pool.
-- **Aid Disbursement**: Admin-only tool to scan recipient QR codes and push funds from the pool to the user.
-- **Withdrawal Portal**: Recipient-only interface to request cash-outs.
-
-### Verification & History
-- **System Ledger**: A unified activity log tracking donations, disbursements, and withdrawals with real-time updates.
-- **Identity Card**: A secure QR-based identity system for verification during disbursement.
-
-## Current Progress: Mobile Conversion
-- [x] Migrated P2P logic to Trust Account Model.
-- [x] Updated UI for role-based dashboards.
-- [ ] Initializing Capacitor for Native Android/iOS builds.
-- [ ] Swapping browser-cam for Native QR Scanner plugin.
+## 7. Next Implementation Steps
+1. **Firestore Redesign**: Create `settlement_records` and update `spending_records` with status fields.
+2. **QR Generation**: Build the tool for Admins to generate and print Donee Identity Cards.
+3. **Donor Redirection**: Implement the "Open EasyPaisa" deep linking logic.
+4. **Settlement Dashboard**: Build the Admin view for calculating weekly shopkeeper payouts.

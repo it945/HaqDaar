@@ -1,653 +1,531 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { 
-  doc, 
-  getDoc, 
-  setDoc, 
-  collection, 
-  query, 
-  where, 
-  getDocs,
-  onSnapshot,
-  runTransaction,
-  serverTimestamp,
-  orderBy,
-  limit,
-  increment,
-  enableIndexedDbPersistence,
-  terminate,
-  clearIndexedDbPersistence
-} from 'firebase/firestore';
-import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { db, auth } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
+import { Browser } from '@capacitor/browser';
 
 export interface User {
   id: string;
   name: string;
-  role: 'donor' | 'recipient' | 'admin';
-  balance: number;
-  isVerified: boolean;
-  cnic?: string;
+  role: 'donor' | 'shopkeeper' | 'admin';
+  status: 'active' | 'pending' | 'blocked';
   phone?: string;
+  email?: string;
 }
 
-export interface TrustAccount {
-  balance: number;
-  totalDonations: number;
-  totalDisbursements: number;
-}
-
-export interface Transaction {
+export interface Donee {
   id: string;
-  userId: string;
+  full_name: string;
+  guardian_name?: string;
+  city: string;
+  area: string;
+  need_category?: string;
+  receiving_method?: string;
+  receiving_account_title?: string;
+  receiving_account_masked?: string;
+  receiving_qr_image_url?: string;
+  spending_qr_code: string;
+  photo_url?: string;
+  status: string;
+  funded_credit: number;
+}
+
+export interface DonationRecord {
+  id: string;
+  donor_id: string;
+  donee_id: string;
   amount: number;
-  title: string;
-  type: 'donation' | 'disbursement' | 'withdrawal';
-  status: 'completed' | 'pending' | 'cancelled';
-  icon: string;
-  createdAt: any;
-  date?: string;
+  status: 'pending_verification' | 'verified' | 'rejected';
+  proof_screenshot_url?: string;
+  transaction_reference?: string;
+  created_at: string;
+}
+
+export interface SpendingRecord {
+  id: string;
+  shopkeeper_id: string;
+  donee_id: string;
+  amount: number;
+  items_description: string;
+  settlement_status: 'pending_settlement' | 'settled';
+  created_at: string;
 }
 
 interface AuthContextType {
   user: User | null;
-  trustAccount: TrustAccount;
-  login: (cnic: string, phone: string) => Promise<void>;
+  login: (phone: string) => Promise<void>;
   logout: () => void;
   isLoading: boolean;
-  transactions: Transaction[];
-  isLoadingTxs: boolean;
-  donateToTrust: (amount: number) => Promise<void>;
-  allocateAid: (recipientId: string, amount: number) => Promise<void>;
-  requestWithdrawal: (amount: number) => Promise<void>;
+  donees: Donee[];
+  myDonations: DonationRecord[];
+  submitDonationProof: (doneeId: string, amount: number, ref: string, imageUrl?: string) => Promise<void>;
+  verifyDonation: (recordId: string, status: 'verified' | 'rejected') => Promise<void>;
+  recordSpending: (doneeQr: string, amount: number, items: string) => Promise<void>;
   seedDatabase: () => Promise<void>;
+  openEasyPaisa: (phone: string, amount: number) => void;
+  initiateJazzCash: (phone: string, amount: number) => void;
+  registerDonee: (data: Partial<Donee>) => Promise<void>;
+  updateDonee: (id: string, data: Partial<Donee>) => Promise<void>;
+  getAdminDonees: () => Promise<Donee[]>;
+  getSettlementData: () => Promise<any[]>;
+  initiateSettlement: (shopId: string) => Promise<void>;
+  reviewSpendingRecord: (recordId: string, status: 'verified' | 'rejected', note?: string) => Promise<void>;
+  getAuditLogs: () => Promise<any[]>;
+  getReports: () => Promise<any>;
   isLocalFallback: boolean;
-  firestoreError: string | null;
+  error: string | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const LOCAL_TEST_USERS: User[] = [
-  {
-    id: 'test_donor',
-    name: 'Haris Zafar',
-    cnic: '11111-1111111-1',
-    phone: '03000000000',
-    role: 'donor',
-    balance: 50000,
-    isVerified: true
-  },
-  {
-    id: 'test_recipient',
-    name: 'Saifullah Al-Fassaad',
-    cnic: '12345-6789012-3',
-    phone: '03001234567',
-    role: 'recipient',
-    balance: 15000,
-    isVerified: true
-  },
-  {
-    id: 'test_admin',
-    name: 'System Admin',
-    cnic: '00000-0000000-0',
-    phone: '03009999999',
-    role: 'admin',
-    balance: 0,
-    isVerified: true
-  }
+// Local testing data
+const LOCAL_USERS: User[] = [
+  { id: '00000000-0000-0000-0000-000000000000', name: 'Admin User', role: 'admin', status: 'active', phone: '03000000000' },
+  { id: '00000000-0000-0000-0000-000000000001', name: 'Haris Donor', role: 'donor', status: 'active', phone: '03001111111' },
+  { id: '00000000-0000-0000-0000-000000000002', name: 'Ahmed Store', role: 'shopkeeper', status: 'active', phone: '03002222222' }
 ];
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [trustAccount, setTrustAccount] = useState<TrustAccount>({ balance: 0, totalDonations: 0, totalDisbursements: 0 });
   const [isLoading, setIsLoading] = useState(true);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [isLoadingTxs, setIsLoadingTxs] = useState(true);
+  const [donees, setDonees] = useState<Donee[]>([]);
+  const [myDonations, setMyDonations] = useState<DonationRecord[]>([]);
   const [isLocalFallback, setIsLocalFallback] = useState(false);
-  const [firestoreError, setFirestoreError] = useState<string | null>(null);
-  const [activeUserId, setActiveUserId] = useState<string | null>(() => {
-    const saved = localStorage.getItem('haqdaar_user');
-    if (saved) {
-      try {
-        return JSON.parse(saved).id;
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  });
+  const [error, setError] = useState<string | null>(null);
 
-  // Anonymous Auth to ensure Firestore access
   useEffect(() => {
-    console.log("Checking Firebase Auth status...");
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (!user) {
-        console.log("No active session, attempting anonymous sign-in...");
-        signInAnonymously(auth).then((cred) => {
-          console.log("Anonymous Sign-In successful:", cred.user.uid);
-        }).catch(err => {
-          console.error("Firebase Anonymous Auth Failed:", err);
-          setFirestoreError(`Auth Error: ${err.message}`);
-        });
-      } else {
-        console.log("Firebase Auth Session Active:", user.uid);
-      }
-    });
-    return () => unsubscribe();
+    const savedUser = localStorage.getItem('haqdaar_user');
+    if (savedUser) {
+      setUser(JSON.parse(savedUser));
+    }
+    setIsLoading(false);
   }, []);
 
-  // Real-time Trust Pool tracking
+  // Sync data based on role
   useEffect(() => {
-    // Check localStorage immediately on mount for offline-first feel
-    const savedTrust = localStorage.getItem('haqdaar_trust');
-    if (savedTrust) setTrustAccount(JSON.parse(savedTrust));
+    if (!user) return;
 
-    let unsubscribe: () => void = () => {};
+    const fetchDonees = async () => {
+      const { data, error } = await supabase.from('donees').select('*').eq('status', 'approved');
+      if (data) setDonees(data);
+    };
 
-    // We always try to sync with cloud regardless of isLocalFallback
-    const trustRef = doc(db, 'system', 'trust_account');
-    console.log("Attempting Cloud Sync for Trust Pool (DB ID: " + (db as any).databaseId + ")...");
+    const fetchMyDonations = async () => {
+      if (user.role !== 'donor') return;
+      const { data } = await supabase.from('donation_records').select('*').eq('donor_id', user.id);
+      if (data) setMyDonations(data);
+    };
 
-    unsubscribe = onSnapshot(trustRef, (snapshot) => {
-      console.log("Trust Pool Snapshot received. Exists:", snapshot.exists());
-      if (snapshot.exists()) {
-        const data = snapshot.data();
-        const updatedTrust: TrustAccount = {
-          balance: Number(data.balance) || 0,
-          totalDonations: Number(data.totalDonations) || 0,
-          totalDisbursements: Number(data.totalDisbursements) || 0
-        };
-        setTrustAccount(updatedTrust);
-        setIsLocalFallback(false);
-        setFirestoreError(null);
-        localStorage.setItem('haqdaar_trust', JSON.stringify(updatedTrust));
-      } else {
-        console.warn("Trust account doc missing in Cloud - Check collection 'system' and doc 'trust_account'");
-        setFirestoreError("Cloud Data Missing: Doc 'system/trust_account' not found.");
-        setIsLocalFallback(true);
-      }
-    }, (err) => {
-      console.error("Firestore Trust Sync Error:", err);
-      setFirestoreError(`Connection Error: ${err.message}`);
-      setIsLocalFallback(true);
-    });
+    fetchDonees();
+    fetchMyDonations();
+  }, [user]);
 
-    return () => unsubscribe();
-  }, []); // Only run once on mount, listener stays active
-
-  // Real-time User Profile tracking
-  useEffect(() => {
-    if (!activeUserId) {
-      setUser(null);
-      setIsLoading(false);
-      return;
-    }
-
-    let unsubscribe = () => {};
-
-    if (isLocalFallback) {
-      const savedUser = localStorage.getItem('haqdaar_user');
-      if (savedUser) {
-        try {
-          setUser(JSON.parse(savedUser));
-        } catch {
-          setUser(LOCAL_TEST_USERS.find(u => u.id === activeUserId) || null);
-        }
-      } else {
-        setUser(LOCAL_TEST_USERS.find(u => u.id === activeUserId) || null);
-      }
-      setIsLoading(false);
-    } else {
-      const userRef = doc(db, 'users', activeUserId);
-      unsubscribe = onSnapshot(userRef, (snapshot) => {
-        if (snapshot.exists()) {
-          const freshData = snapshot.data() as User;
-          setUser(freshData);
-          localStorage.setItem('haqdaar_user', JSON.stringify(freshData));
-          setFirestoreError(null); // Clear errors on success
-          setIsLocalFallback(false);
-        } else {
-          // Attempt local fallback if deleted in cloud
-          const matched = LOCAL_TEST_USERS.find(u => u.id === activeUserId) || null;
-          setUser(matched);
-        }
-        setIsLoading(false);
-      }, (error) => {
-        console.warn("Profile Sync Error:", error);
-        setIsLocalFallback(true);
-        setFirestoreError(`Profile Sync: ${error.message}`);
-        setIsLoading(false);
-      });
-    }
-
-    return () => unsubscribe();
-  }, [activeUserId, isLocalFallback]);
-
-  // Real-time Transactions tracking
-  useEffect(() => {
-    if (!user) {
-      setTransactions([]);
-      setIsLoadingTxs(false);
-      return;
-    }
-
-    let unsubscribe = () => {};
-
-    if (isLocalFallback) {
-      const localTxs = localStorage.getItem('haqdaar_local_transactions');
-      if (localTxs) {
-        try {
-          const parsed = JSON.parse(localTxs) as Transaction[];
-          setTransactions(parsed.filter(tx => tx.userId === user.id));
-        } catch {
-          setTransactions([]);
-        }
-      }
-      setIsLoadingTxs(false);
-    } else {
-      setIsLoadingTxs(true);
-      // If admin, show global ledger. If donor/recipient, show personal transactions.
-      const txsRef = user.role === 'admin'
-        ? collection(db, 'ledger')
-        : collection(db, 'users', user.id, 'transactions');
-
-      const q = query(txsRef, orderBy('createdAt', 'desc'), limit(50));
-
-      unsubscribe = onSnapshot(q, (snapshot) => {
-        const txs = snapshot.docs.map(doc => {
-          const data = doc.data();
-          let formattedDate = 'Recent';
-          try {
-            if (data.createdAt) {
-              const dt = typeof data.createdAt.toDate === 'function' ? data.createdAt.toDate() : new Date(data.createdAt);
-              formattedDate = dt.toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-            }
-          } catch (e) {}
-          return { id: doc.id, ...data, date: formattedDate } as Transaction;
-        });
-        setTransactions(txs);
-        setIsLoadingTxs(false);
-      }, (error) => {
-        setIsLocalFallback(true);
-      });
-    }
-
-    return () => unsubscribe();
-  }, [user, isLocalFallback]);
-
-  const login = async (cnic: string, phone: string) => {
+  const login = async (phone: string) => {
     setIsLoading(true);
-
-    const searchCnic = cnic.replace(/-/g, '').trim();
-    const searchPhone = phone.replace(/-/g, '').trim();
-    const dashedCnic = cnic.includes('-') ? cnic : `${cnic.slice(0,5)}-${cnic.slice(5,12)}-${cnic.slice(12)}`;
-    const dashedPhone = phone.includes('-') ? phone : `${phone.slice(0,4)}-${phone.slice(4)}`;
-
+    setError(null);
     try {
-      // 1. Try to find user in Firebase
-      const usersRef = collection(db, 'users');
+      // Automatic role lookup via phone number in profiles
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('phone', phone)
+        .single();
 
-      // Check multiple formats (Dashed and Plain)
-      const q1 = query(usersRef, where('cnic', 'in', [cnic, searchCnic, dashedCnic]));
-      const q2 = query(usersRef, where('phone', 'in', [phone, searchPhone, dashedPhone]));
-
-      const [snap1, snap2] = await Promise.all([getDocs(q1), getDocs(q2)]);
-
-      let userData: User | null = null;
-
-      // Find intersection or best match
-      const users1 = snap1.docs.map(d => d.data() as User);
-      const users2 = snap2.docs.map(d => d.data() as User);
-      userData = users1.find(u1 => users2.some(u2 => u2.id === u1.id)) || null;
-
-      if (!userData && (snap1.empty || snap2.empty)) {
-        // 2. Check if it's one of our TEST users
-        const matched = LOCAL_TEST_USERS.find(u => {
-          const uCnic = u.cnic?.replace(/-/g, '');
-          const uPhone = u.phone?.replace(/-/g, '');
-          return uCnic === searchCnic && uPhone === searchPhone;
-        });
-
-        if (matched) {
-          // 3. AUTO-SYNC Test User to Firebase
-          try {
-            const testUserRef = doc(db, 'users', matched.id);
-            await setDoc(testUserRef, matched, { merge: true });
-          } catch (e) {
-            console.warn("Auto-sync failed", e);
-          }
-          userData = matched;
+      if (data) {
+        setUser(data);
+        localStorage.setItem('haqdaar_user', JSON.stringify(data));
+      } else {
+        // Fallback to local test users
+        const local = LOCAL_USERS.find(u => u.phone === phone);
+        if (local) {
+          setUser(local);
+          localStorage.setItem('haqdaar_user', JSON.stringify(local));
+          setIsLocalFallback(true);
+        } else {
+          throw new Error('No account found for this phone number.');
         }
       }
-
-      if (userData) {
-        setFirestoreError(null);
-        setIsLocalFallback(false);
-        setActiveUserId(userData.id);
-        setUser(userData);
-        localStorage.setItem('haqdaar_user', JSON.stringify(userData));
-      } else {
-        throw new Error('User not registered in system.');
-      }
-    } catch (error: any) {
-      console.error("Login Error:", error);
-
-      // Final fallback to local
-      const matched = LOCAL_TEST_USERS.find(u => {
-        const uCnic = u.cnic?.replace(/-/g, '');
-        const uPhone = u.phone?.replace(/-/g, '');
-        return uCnic === searchCnic && uPhone === searchPhone;
-      });
-
-      if (matched) {
-        setFirestoreError(null); // Clear error since we found a local match
-        setIsLocalFallback(true);
-        setActiveUserId(matched.id);
-        setUser(matched);
-        localStorage.setItem('haqdaar_user', JSON.stringify(matched));
-      } else {
-        setFirestoreError(`Access Denied: ${error.message}`);
-        throw error;
-      }
+    } catch (err: any) {
+      setError(err.message);
+      throw err;
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const donateToTrust = async (amount: number) => {
-    if (!user) return;
-    const amountNum = Number(amount);
-    if (isNaN(amountNum) || amountNum <= 0) throw new Error('Please enter a valid amount.');
-
-    try {
-      // 1. Try Cloud First
-      await runTransaction(db, async (txn) => {
-        const trustRef = doc(db, 'system', 'trust_account');
-        const userRef = doc(db, 'users', user.id);
-
-        const [trustSnap, userSnap] = await Promise.all([txn.get(trustRef), txn.get(userRef)]);
-
-        if (userSnap.exists() && (userSnap.data().balance || 0) < amountNum) {
-          throw new Error('Insufficient wallet balance in Cloud.');
-        }
-
-        txn.set(trustRef, {
-          balance: increment(amountNum),
-          totalDonations: increment(amountNum)
-        }, { merge: true });
-
-        txn.update(userRef, {
-          balance: increment(-amountNum)
-        });
-
-        const txRef = doc(collection(db, 'users', user.id, 'transactions'));
-        txn.set(txRef, {
-          userId: user.id,
-          amount: amountNum,
-          title: 'Donation to Trust Pool',
-          type: 'donation',
-          status: 'completed',
-          icon: '❤️',
-          createdAt: serverTimestamp()
-        });
-
-        // Also write to Global Ledger for Admin visibility
-        const ledgerRef = doc(collection(db, 'ledger'));
-        txn.set(ledgerRef, {
-          userId: user.id,
-          userName: user.name,
-          amount: amountNum,
-          title: `Donation from ${user.name}`,
-          type: 'donation',
-          status: 'completed',
-          icon: '❤️',
-          createdAt: serverTimestamp()
-        });
-      });
-
-      // If successful, restore Cloud mode if it was in fallback
-      if (isLocalFallback) {
-        setIsLocalFallback(false);
-        setFirestoreError(null);
-      }
-      return;
-    } catch (cloudError: any) {
-      console.warn("Cloud Donation Error:", cloudError);
-
-      // 2. Fallback to Local only if already in fallback or cloud is definitely unreachable
-      if (isLocalFallback || cloudError.code === 'unavailable' || cloudError.code === 'permission-denied') {
-        if (user.balance < amountNum) throw new Error('Insufficient local balance');
-
-        const updatedUser = { ...user, balance: user.balance - amountNum };
-        const updatedTrust = {
-          ...trustAccount,
-          balance: trustAccount.balance + amountNum,
-          totalDonations: trustAccount.totalDonations + amountNum
-        };
-
-        setUser(updatedUser);
-        setTrustAccount(updatedTrust);
-
-        localStorage.setItem('haqdaar_user', JSON.stringify(updatedUser));
-        localStorage.setItem('haqdaar_trust', JSON.stringify(updatedTrust));
-
-        const newTx: Transaction = {
-          id: 'tx_' + Date.now(),
-          userId: user.id,
-          amount: amountNum,
-          title: 'Donation to Trust Pool (Local)',
-          type: 'donation',
-          status: 'completed',
-          icon: '❤️',
-          createdAt: new Date(),
-          date: new Date().toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
-        };
-
-        const allTxs = JSON.parse(localStorage.getItem('haqdaar_local_transactions') || '[]');
-        allTxs.unshift(newTx);
-        localStorage.setItem('haqdaar_local_transactions', JSON.stringify(allTxs));
-        setTransactions(allTxs.filter((t: any) => t.userId === user.id));
-
-        setIsLocalFallback(true);
-        setFirestoreError(`Cloud Sync Failed: Using Local Mode`);
-      } else {
-        throw cloudError;
-      }
-    }
-  };
-
-  const allocateAid = async (recipientId: string, amount: number) => {
-    if (!user || user.role !== 'admin') return;
-    const amountNum = Number(amount);
-    if (isNaN(amountNum) || amountNum <= 0) throw new Error('Please enter a valid amount.');
-
-    try {
-      // 1. Try Cloud Transaction
-      await runTransaction(db, async (txn) => {
-        const trustRef = doc(db, 'system', 'trust_account');
-        const recipientRef = doc(db, 'users', recipientId);
-        const [trustSnap, recipientSnap] = await Promise.all([txn.get(trustRef), txn.get(recipientRef)]);
-
-        if (!trustSnap.exists() || trustSnap.data().balance < amountNum) throw new Error('Insufficient pool balance in Cloud');
-        if (!recipientSnap.exists()) throw new Error('Recipient not found in Cloud');
-
-        txn.update(trustRef, {
-          balance: increment(-amountNum),
-          totalDisbursements: increment(amountNum)
-        });
-
-        txn.update(recipientRef, {
-          balance: increment(amountNum)
-        });
-
-        const recTxRef = doc(collection(db, 'users', recipientId, 'transactions'));
-        txn.set(recTxRef, {
-          userId: recipientId,
-          amount: amountNum,
-          title: 'Aid Received from Trust',
-          type: 'disbursement',
-          status: 'completed',
-          icon: '🎁',
-          createdAt: serverTimestamp()
-        });
-
-        // Also write to Global Ledger for Admin visibility
-        const ledgerRef = doc(collection(db, 'ledger'));
-        txn.set(ledgerRef, {
-          userId: recipientId,
-          recipientName: recipientSnap.data()?.name || 'Recipient',
-          amount: amountNum,
-          title: `Aid Disbursed to ${recipientSnap.data()?.name || 'Recipient'}`,
-          type: 'disbursement',
-          status: 'completed',
-          icon: '🎁',
-          createdAt: serverTimestamp()
-        });
-      });
-
-      if (isLocalFallback) {
-        setIsLocalFallback(false);
-        setFirestoreError(null);
-      }
-      return;
-    } catch (cloudError: any) {
-      console.warn("Cloud Allocation Error:", cloudError);
-
-      if (isLocalFallback || cloudError.code === 'unavailable') {
-        if (trustAccount.balance < amountNum) throw new Error('Insufficient local pool balance');
-
-        const updatedTrust = {
-          ...trustAccount,
-          balance: trustAccount.balance - amountNum,
-          totalDisbursements: trustAccount.totalDisbursements + amountNum
-        };
-
-        setTrustAccount(updatedTrust);
-        localStorage.setItem('haqdaar_trust', JSON.stringify(updatedTrust));
-
-        // Update recipient balance in local storage
-        const savedUserStr = localStorage.getItem('haqdaar_user');
-        if (savedUserStr) {
-          const currentUser = JSON.parse(savedUserStr);
-          if (currentUser.id === recipientId) {
-            currentUser.balance += amountNum;
-            setUser(currentUser);
-            localStorage.setItem('haqdaar_user', JSON.stringify(currentUser));
-          }
-        }
-
-        const newTx: Transaction = {
-          id: 'tx_' + Date.now(),
-          userId: user.id,
-          amount: amountNum,
-          title: 'Aid Allocation Authorized (Local)',
-          type: 'disbursement',
-          status: 'completed',
-          icon: '🎁',
-          createdAt: new Date(),
-          date: new Date().toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
-        };
-
-        const allTxs = JSON.parse(localStorage.getItem('haqdaar_local_transactions') || '[]');
-        allTxs.unshift(newTx);
-
-        const recTx: Transaction = {
-          id: 'tx_rec_' + Date.now(),
-          userId: recipientId,
-          amount: amountNum,
-          title: 'Aid Received from Trust (Local)',
-          type: 'disbursement',
-          status: 'completed',
-          icon: '🎁',
-          createdAt: new Date(),
-          date: new Date().toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
-        };
-        allTxs.unshift(recTx);
-
-        localStorage.setItem('haqdaar_local_transactions', JSON.stringify(allTxs));
-        setTransactions(allTxs.filter((t: any) => t.userId === user.id));
-
-        setIsLocalFallback(true);
-      } else {
-        throw cloudError;
-      }
-    }
-  };
-
-  const requestWithdrawal = async (amount: number) => {
-    const amountNum = Number(amount);
-    if (isNaN(amountNum) || amountNum <= 0) throw new Error('Please enter a valid amount.');
-    if (!user || (user.balance || 0) < amountNum) throw new Error('Insufficient balance');
-
-    await runTransaction(db, async (txn) => {
-      const userRef = doc(db, 'users', user.id);
-      const userSnap = await txn.get(userRef);
-      if ((userSnap.data()?.balance || 0) < amountNum) throw new Error('Insufficient balance');
-
-      txn.update(userRef, { balance: increment(-amountNum) });
-
-      const txRef = doc(collection(db, 'users', user.id, 'transactions'));
-      txn.set(txRef, {
-        userId: user.id,
-        amount: amountNum,
-        title: 'Withdrawal to Cash/Bank',
-        type: 'withdrawal',
-        status: 'completed',
-        icon: '🏦',
-        createdAt: serverTimestamp()
-      });
-    });
   };
 
   const logout = () => {
-    setActiveUserId(null);
     setUser(null);
-    setTransactions([]);
     localStorage.removeItem('haqdaar_user');
   };
 
-  const seedDatabase = async () => {
-    setIsLoading(true);
+  const submitDonationProof = async (doneeId: string, amount: number, ref: string, imageUrl?: string) => {
+    if (!user) {
+      alert("No user logged in!");
+      return;
+    }
+
+    console.log('Submitting proof:', { doneeId, amount, ref, imageSize: imageUrl?.length });
+
+    const payload = {
+      donor_id: user.id,
+      donee_id: doneeId,
+      amount,
+      transaction_reference: ref,
+      proof_screenshot_url: imageUrl,
+      status: 'pending_verification'
+    };
+
+    const { error } = await supabase.from('donation_records').insert(payload);
+
+    if (error) {
+      console.error('Primary insert failed, trying fallback...', error);
+      // Fallback: If proof_screenshot_url column is missing, pack it into transaction_reference
+      if (error.message.includes('column "proof_screenshot_url" does not exist')) {
+        const fallbackPayload = {
+          donor_id: user.id,
+          donee_id: doneeId,
+          amount,
+          transaction_reference: `IMG_DATA|${imageUrl}|${ref}`,
+          status: 'pending_verification'
+        };
+        const { error: fallbackError } = await supabase.from('donation_records').insert(fallbackPayload);
+        if (fallbackError) {
+          alert("Fallback Save Failed: " + fallbackError.message);
+          throw fallbackError;
+        }
+      } else {
+        alert("Database Error: " + error.message);
+        throw error;
+      }
+    }
+
+    alert("Proof saved successfully!");
+
+    // Refresh donations
+    const { data } = await supabase.from('donation_records').select('*').eq('donor_id', user.id);
+    if (data) setMyDonations(data);
+  };
+
+  const verifyDonation = async (recordId: string, status: 'verified' | 'rejected') => {
+    if (user?.role !== 'admin') return;
+
     try {
-      // 1. Create Users
-      for (const u of LOCAL_TEST_USERS) {
-        const userRef = doc(db, 'users', u.id);
-        await setDoc(userRef, u, { merge: true });
-        console.log("Seeded user:", u.name);
+      // 1. Get record to find amount and donee
+      const { data: record, error: fetchError } = await supabase
+        .from('donation_records')
+        .select('amount, donee_id')
+        .eq('id', recordId)
+        .single();
+
+      if (fetchError || !record) throw new Error('Could not find donation record.');
+
+      // 2. Update record status
+      const { error: updateError } = await supabase
+        .from('donation_records')
+        .update({ status })
+        .eq('id', recordId);
+
+      if (updateError) throw updateError;
+
+      // 3. If verified, increase donee's funded_credit
+      if (status === 'verified') {
+        const { data: donee, error: doneeFetchError } = await supabase
+          .from('donees')
+          .select('funded_credit')
+          .eq('id', record.donee_id)
+          .single();
+
+        if (doneeFetchError || !donee) throw new Error('Could not find donee to update credit.');
+
+        const currentCredit = Number(donee.funded_credit) || 0;
+        const donationAmount = Number(record.amount) || 0;
+        const newCredit = currentCredit + donationAmount;
+
+        const { error: doneeUpdateError } = await supabase
+          .from('donees')
+          .update({ funded_credit: newCredit })
+          .eq('id', record.donee_id);
+
+        if (doneeUpdateError) throw doneeUpdateError;
       }
 
-      // 2. Create Trust Account
-      const trustRef = doc(db, 'system', 'trust_account');
-      await setDoc(trustRef, {
-        balance: 0,
-        totalDonations: 0,
-        totalDisbursements: 0
-      }, { merge: true });
+      // Log Action
+      await supabase.from('audit_logs').insert({
+        actor_id: user.id,
+        action: 'VERIFY_DONATION',
+        entity_type: 'donation_record',
+        entity_id: recordId,
+        details: { status, amount: record.amount }
+      });
 
-      console.log("Seeded Trust Account");
-      alert("Cloud Database Seeded Successfully!");
-    } catch (error: any) {
-      console.error("Seeding Error:", error);
-      alert("Seeding failed: " + error.message);
-    } finally {
-      setIsLoading(false);
+      console.log('Verification successful:', recordId, status);
+    } catch (err: any) {
+      console.error('Verification failed:', err);
+      alert('Verification Error: ' + err.message);
+      throw err;
+    }
+  };
+
+  const recordSpending = async (doneeQr: string, amount: number, items: string) => {
+    if (user?.role !== 'shopkeeper') return;
+
+    // 1. Find donee by QR
+    const { data: donee } = await supabase
+      .from('donees')
+      .select('id, funded_credit')
+      .eq('spending_qr_code', doneeQr)
+      .single();
+
+    if (!donee) throw new Error('Invalid Donee QR');
+    if ((donee.funded_credit || 0) < amount) throw new Error('Insufficient credit in Donee account');
+
+    // 2. Create spending record
+    const { error: spendingError } = await supabase.from('spending_records').insert({
+      shopkeeper_id: user.id,
+      donee_id: donee.id,
+      amount,
+      items_description: items,
+      settlement_status: 'pending_settlement'
+    });
+
+    if (spendingError) throw spendingError;
+
+    // 3. Deduct credit from donee
+    await supabase
+      .from('donees')
+      .update({ funded_credit: donee.funded_credit - amount })
+      .eq('id', donee.id);
+
+    // Log Action
+    await supabase.from('audit_logs').insert({
+      actor_id: user.id,
+      action: 'RECORD_SPENDING',
+      entity_type: 'donee',
+      entity_id: donee.id,
+      details: { amount, items }
+    });
+  };
+
+  const openEasyPaisa = async (phone: string, amount: number) => {
+    // 2026 Raast Universal P2P Autofill Link
+    const donee = donees.find(d => d.receiving_account_masked?.replace(/\D/g, '') === phone);
+    const hasPayload = donee?.receiving_method && donee.receiving_method.startsWith('0002');
+
+    // Level 2: Direct Autofill via official qr_pay scheme (EMVCo encrypted payload)
+    // Level 1: Standard raast://p2p fallback
+    const directPayLink = hasPayload
+      ? `easypaisa://qr_pay?data=${encodeURIComponent(donee.receiving_method)}`
+      : `raast://p2p?alias=${phone}&amount=${amount}`;
+
+    const legacyLink = `easypaisa://send_money?number=${phone}&amount=${amount}`;
+
+    // Capacitor Browser opens links in a more stable way for mobile
+    // It prevents the "Task Switcher bounce" by explicitly handing off the URI
+    try {
+      await Browser.open({ url: directPayLink });
+    } catch (e) {
+      await Browser.open({ url: legacyLink });
+    }
+
+    // Secondary fallback to OneLink if app doesn't open
+    setTimeout(async () => {
+      if (document.visibilityState === 'visible') {
+        await Browser.open({ url: "https://easypaisa.onelink.me/cw4d/q9y8ba5v" });
+      }
+    }, 3000);
+  };
+
+  const initiateJazzCash = async (phone: string, amount: number) => {
+    const raastLink = `raast://p2p?alias=${phone}&amount=${amount}`;
+    await Browser.open({ url: raastLink });
+  };
+
+  const registerDonee = async (data: Partial<Donee>) => {
+    if (user?.role !== 'admin') return;
+    const { error } = await supabase.from('donees').insert({
+      ...data,
+      status: 'approved',
+      funded_credit: 0
+    });
+    if (error) throw error;
+
+    // Log Action
+    await supabase.from('audit_logs').insert({
+      actor_id: user.id,
+      action: 'REGISTER_DONEE',
+      entity_type: 'donee',
+      details: { name: data.full_name }
+    });
+
+    // Refresh donees
+    const { data: list } = await supabase.from('donees').select('*').eq('status', 'approved');
+    if (list) setDonees(list);
+  };
+
+  const updateDonee = async (id: string, data: Partial<Donee>) => {
+    if (user?.role !== 'admin') return;
+    const { error } = await supabase.from('donees').update(data).eq('id', id);
+    if (error) throw error;
+
+    // Log Action
+    await supabase.from('audit_logs').insert({
+      actor_id: user.id,
+      action: 'UPDATE_DONEE',
+      entity_type: 'donee',
+      entity_id: id,
+      details: data
+    });
+
+    // Refresh donees
+    const { data: list } = await supabase.from('donees').select('*').eq('status', 'approved');
+    if (list) setDonees(list);
+  };
+
+  const getAdminDonees = async () => {
+    if (user?.role !== 'admin') return [];
+    const { data } = await supabase.from('donees').select('*').order('created_at', { ascending: false });
+    return data || [];
+  };
+
+  const getSettlementData = async () => {
+    if (user?.role !== 'admin') return [];
+
+    // Fetch all pending spending records grouped by shopkeeper
+    const { data } = await supabase
+      .from('spending_records')
+      .select('*, profiles!spending_records_shopkeeper_id_fkey(full_name)')
+      .eq('settlement_status', 'pending_settlement');
+
+    return data || [];
+  };
+
+  const reviewSpendingRecord = async (recordId: string, status: 'verified' | 'rejected', note?: string) => {
+    if (user?.role !== 'admin') return;
+    const { error } = await supabase
+      .from('spending_records')
+      .update({ settlement_status: status === 'verified' ? 'settled' : 'pending_settlement', admin_note: note })
+      .eq('id', recordId);
+
+    if (error) throw error;
+  };
+
+  const getAuditLogs = async () => {
+    if (user?.role !== 'admin') return [];
+    const { data } = await supabase.from('audit_logs').select('*, profiles(full_name)').order('created_at', { ascending: false }).limit(50);
+    return data || [];
+  };
+
+  const getReports = async () => {
+    // Live reporting for Admin
+    const { data: donations } = await supabase.from('donation_records').select('amount').eq('status', 'verified');
+    const { data: spending } = await supabase.from('spending_records').select('amount');
+    const { count: doneesCount } = await supabase.from('donees').select('*', { count: 'exact', head: true });
+
+    return {
+      totalDonations: donations?.reduce((a, b) => a + Number(b.amount), 0) || 0,
+      totalSpending: spending?.reduce((a, b) => a + Number(b.amount), 0) || 0,
+      activeDonees: doneesCount || 0
+    };
+  };
+
+  const initiateSettlement = async (shopId: string) => {
+    if (user?.role !== 'admin') return;
+
+    // 1. Create settlement record
+    const { data: records } = await supabase
+      .from('spending_records')
+      .select('amount')
+      .eq('shopkeeper_id', shopId)
+      .eq('settlement_status', 'pending_settlement');
+
+    const total = records?.reduce((acc, r) => acc + r.amount, 0) || 0;
+
+    await supabase.from('settlement_records').insert({
+      shopkeeper_id: shopId,
+      amount: total,
+      status: 'settled',
+      settled_at: new Date().toISOString(),
+      admin_id: user.id
+    });
+
+    // 2. Mark all spending as settled
+    const { error: updateError } = await supabase
+      .from('spending_records')
+      .update({ settlement_status: 'settled' })
+      .eq('shopkeeper_id', shopId)
+      .eq('settlement_status', 'pending_settlement');
+
+    if (updateError) throw updateError;
+
+    // Log Action
+    await supabase.from('audit_logs').insert({
+      actor_id: user.id,
+      action: 'INITIATE_SETTLEMENT',
+      entity_type: 'shopkeeper',
+      entity_id: shopId,
+      details: { amount: total }
+    });
+
+    alert('Settlement processed successfully!');
+  };
+
+  const seedDatabase = async () => {
+    try {
+      for (const u of LOCAL_USERS) {
+        await supabase.from('profiles').upsert({
+          id: u.id,
+          full_name: u.name,
+          phone: u.phone,
+          role: u.role,
+          status: 'active'
+        });
+
+        if (u.role === 'shopkeeper') {
+          await supabase.from('shopkeepers').upsert({
+            profile_id: u.id,
+            shop_name: u.name,
+            status: 'active'
+          });
+        }
+      }
+      await supabase.from('donees').upsert([{
+        full_name: 'Amina Bibi',
+        city: 'Karachi',
+        area: 'Lyari',
+        receiving_method: 'EasyPaisa',
+        receiving_account_masked: '0300-XXXX123',
+        spending_qr_code: 'DONEE-123',
+        status: 'approved',
+        funded_credit: 5000
+      }]);
+      alert('Test data seeded!');
+    } catch (err: any) {
+      alert('Seeding failed: ' + err.message);
     }
   };
 
   return (
     <AuthContext.Provider value={{ 
       user,
-      trustAccount,
       login,
       logout,
       isLoading,
-      transactions,
-      isLoadingTxs,
-      donateToTrust,
-      allocateAid,
-      requestWithdrawal,
+      donees,
+      myDonations,
+      submitDonationProof,
+      verifyDonation,
+      recordSpending,
       seedDatabase,
+      openEasyPaisa,
+      registerDonee,
+      getSettlementData,
+      initiateSettlement,
+      reviewSpendingRecord,
+      getAuditLogs,
+      getReports,
+      initiateJazzCash,
+      updateDonee,
+      getAdminDonees,
       isLocalFallback,
-      firestoreError
+      error
     }}>
       {children}
     </AuthContext.Provider>

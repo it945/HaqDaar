@@ -33,7 +33,31 @@
   }
 }
 
+@layer utilities {
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+@media print {
+  nav, header, .print\:hidden, button, .modal-backdrop {
+    display: none !important;
+  }
+  body, .bg-slate-50, .max-w-md {
+    background: white !important;
+    max-width: none !important;
+    border: none !important;
+  }
+  .modal-container {
+    position: relative !important;
+    box-shadow: none !important;
+  }
+}
+
 .font-display {
   font-family: var(--font-display);
 }
-

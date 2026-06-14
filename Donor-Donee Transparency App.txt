@@ -1,0 +1,1253 @@
+Donor-Donee Transparency App
+Updated No-Custody Product Document + Cursor Prompt Chain
+Version: MVP Planning Document | Model: Direct donor-to-donee payments only
+
+Core Positioning
+The platform will not receive, hold, store, pool, transfer, process, or settle any donor money. Donors pay donees or approved receivers directly outside the app. The app only connects verified donees with donors and records proof/transparency data.
+
+Prepared for development in Cursor using Next.js, Supabase, TypeScript, Tailwind CSS, and a mobile-first PWA approach.
+ 
+Table of Contents
+1.	1. Executive Summary
+2.	2. Non-Custody Declaration
+3.	3. Updated Donee Discovery Model
+4.	4. Regulatory Orientation
+5.	5. User Roles
+6.	6. QR Code Architecture
+7.	7. Product Flows
+8.	8. Terminology and UI Wording
+9.	9. MVP Scope
+10.	10. Database Design
+11.	11. Prerequisites
+12.	12. Cursor Prompt Chain and Test Checklist
+13.	13. Final QA Checklist
+14.	14. References
+ 
+1. Executive Summary
+This document defines the updated MVP for a donor-donee transparency platform. The platform connects donors with manually verified donees. Donees are found and verified outside the app first, then selected donees are uploaded into the app by admin with basic details and receiving QR codes.
+The platform is intentionally designed as a no-custody connection and transparency system. It does not receive or hold any donation money. Donors send money directly to the donee, guardian, or approved receiver using EasyPaisa, JazzCash, Raast, bank transfer, or another external payment method.
+Main Design Decision
+There will be no donor cash wallet. The app may show an Impact Wallet or My Donation Records screen, but it is only a record of pending and verified direct donation proofs. It must never be presented as a spendable cash balance.
+2. Non-Custody Declaration
+Mandatory Product Statement
+The platform will not receive, hold, store, pool, transfer, process, route, or settle any donor money. Donors pay donees or approved receivers directly outside the app. The app only records proof, verification status, and transparency updates.
+•	The platform is not a wallet.
+•	The platform is not a payment gateway.
+•	The platform is not a money transfer service.
+•	The platform is not a payment processor, PSO, PSP, EMI, bank, or microfinance institution.
+•	The platform does not collect donations into its own account in the MVP.
+•	The platform does not settle shopkeepers in the MVP.
+•	All donor payments happen outside the app using the donor’s own payment app or bank channel.
+3. Updated Donee Discovery Model
+Donees will not apply inside the app and will not self-register. Donee discovery and verification will happen offline before a donee is added into the system.
+3.1 Offline Donee Identification
+•	Your team finds deserving donees outside the app through field work, community references, local shopkeeper references, NGO/social worker references, mosque/community networks, or internal verification visits.
+•	The team checks whether the donee is genuinely poor or deserving.
+•	The team collects only the minimum basic information needed for donor trust and payment routing.
+•	The team confirms whether the receiving QR belongs to the donee, guardian, family member, or another approved receiver.
+•	Only selected and approved donees are uploaded into the app by admin.
+3.2 No Public Donee Signup
+•	There is no donee signup page.
+•	There is no donee login.
+•	There is no donee mobile app.
+•	There is no public request-for-help form in the MVP.
+•	A donee cannot add or edit their own information.
+•	Only admin can create, edit, approve, pause, or block a donee.
+3.3 Basic Details Uploaded by Admin
+•	Donee name
+•	Guardian name if applicable
+•	City and area
+•	Need category
+•	Reason for support
+•	Verification notes
+•	Optional photo
+•	Receiving payment method
+•	Receiving QR image
+•	Masked receiving account detail
+•	App-generated spending identity QR code
+4. Regulatory Orientation
+This document is a product and technology planning document, not legal advice. A payment/legal consultant should review the final model before public launch. The low-licensing logic is based on avoiding wallet, stored-value, payment routing, payment processing, and settlement activities.
+•	SBP describes Electronic Money Institutions as licensed entities that provide digital payment instruments such as wallets, prepaid cards, and contactless instruments.
+•	SBP describes PSO/PSP activity as providing electronic platforms for clearing, processing, routing, and switching electronic transactions.
+•	Raast P2M QR is designed for merchants/businesses to accept payments through QR and other channels.
+•	The MVP avoids these activities by keeping all payments outside the app and only recording proof and transparency data.
+Practical Rule
+If the app ever starts receiving funds, pooling funds, creating spendable balances, routing transactions, or settling shopkeepers, the compliance model must be reviewed again before launch.
+5. User Roles
+5.1 Admin
+•	Adds only offline-verified donees into the app.
+•	Uploads receiving QR image and basic donee details.
+•	Generates app spending identity QR for each donee.
+•	Adds and manages shopkeepers.
+•	Reviews donor payment proofs.
+•	Approves or rejects donation records.
+•	Reviews shopkeeper spending records.
+•	Views reports, audit logs, and risk flags.
+5.2 Donor
+•	Registers/logs in.
+•	Views only approved donees.
+•	Selects a donee.
+•	Pays directly to the donee or approved receiver outside the app.
+•	Uploads payment screenshot/reference.
+•	Sees status as pending, verified, or rejected.
+•	Views verified donation records in My Donation Records or Impact Wallet.
+•	Receives spending visibility updates when shopkeeper records are approved.
+5.3 Shopkeeper
+•	Logs in through shopkeeper account created by admin.
+•	Scans donee spending identity QR.
+•	Records purchase amount, items, and optional receipt photo.
+•	Sees own submitted spending records.
+•	Does not receive settlement from the platform in MVP.
+5.4 Donee
+•	Has no app login.
+•	Is found and verified offline.
+•	Is added into the app only by admin.
+•	May have a physical spending QR card.
+•	May have a receiving QR linked to donee, guardian, or approved receiver.
+6. QR Code Architecture
+6.1 Receiving QR
+The receiving QR is a real payment QR or payment/account detail image uploaded by admin. It is used by the donor to pay the donee or approved receiver directly outside the platform.
+•	May be EasyPaisa, JazzCash, Raast, bank transfer QR, or another approved method.
+•	May belong to the donee, guardian, family member, or approved receiver.
+•	The platform only displays this QR.
+•	The platform does not process the payment.
+•	Donor submits screenshot/reference after paying.
+6.2 Spending Identity QR
+The spending identity QR is generated by the app. It is not a payment QR. It is used by shopkeeper to identify the donee and submit a purchase/spending record.
+•	Example code: DONEE-SPEND-8FK29S
+•	Route example: /shopkeeper/record-spending/DONEE-SPEND-8FK29S
+•	Must not expose database ID.
+•	Must not contain bank/payment credentials.
+•	Can be printed as a physical card.
+7. Product Flows
+7.1 Offline Donee Verification Flow
+15.	Team identifies a poor/deserving donee outside the app.
+16.	Team verifies the case through field/community/reference checks.
+17.	Team collects basic details and receiving QR from donee/guardian/approved receiver.
+18.	Internal admin approves the donee for upload.
+19.	Admin creates donee profile inside the app.
+20.	Admin uploads receiving QR and generates spending identity QR.
+21.	Donee becomes visible to donors only after approval.
+7.2 Donor Direct Donation Flow
+22.	Donor logs in.
+23.	Donor browses approved donees.
+24.	Donor selects a donee.
+25.	App shows receiving QR and no-custody notice.
+26.	Donor pays outside the app using EasyPaisa, JazzCash, Raast, bank, or other method.
+27.	Donor returns to app and uploads screenshot/reference.
+28.	Donation record status becomes Pending Verification.
+29.	Admin verifies or rejects the proof.
+30.	Verified record appears in donor’s My Donation Records/Impact Wallet.
+7.3 Shopkeeper Spending Record Flow
+31.	Donee visits approved shopkeeper with physical spending QR.
+32.	Shopkeeper logs in and scans donee QR.
+33.	App shows limited donee identity.
+34.	Shopkeeper enters purchase amount and item details.
+35.	Shopkeeper uploads optional receipt/photo.
+36.	Spending record goes to admin review.
+37.	Admin approves or rejects the spending record.
+38.	If approved, donors who supported that donee receive visibility notification.
+8. Terminology and UI Wording
+8.1 Avoid These Terms
+•	Wallet balance
+•	Add money
+•	Top-up
+•	Withdraw
+•	Transfer from app
+•	Cash balance
+•	Available balance
+•	Send from wallet
+•	Shopkeeper settlement
+•	Platform collection
+8.2 Use These Terms
+•	My Donation Records
+•	Impact Wallet - record only
+•	Direct donation proof
+•	Pending verification
+•	Verified donation
+•	Rejected proof
+•	Donee receiving QR
+•	Spending identity QR
+•	Purchase update
+•	Transparency report
+Impact Wallet Disclaimer
+This is not a cash wallet. It only shows your direct donation records. Your money is sent directly to the donee or approved receiver outside this platform.
+9. MVP Scope
+9.1 Included in MVP
+•	Admin login
+•	Donor login and signup
+•	Shopkeeper login
+•	Offline verified donee upload by admin
+•	Receiving QR upload by admin
+•	Spending identity QR generation
+•	Donor direct donation proof submission
+•	Admin proof verification
+•	My Donation Records/Impact Wallet record-only page
+•	Shopkeeper QR scan and spending record submission
+•	Admin spending record review
+•	Notifications
+•	Reports
+•	Audit logs
+•	No-custody policy page
+9.2 Excluded from MVP
+•	Public donee signup
+•	Donee login
+•	Real donor wallet
+•	Stored balance
+•	Payment gateway integration
+•	Auto payment confirmation
+•	App-based fund transfer
+•	Shopkeeper settlement
+•	Pooled charity fund account
+•	Withdrawal feature
+•	Any payment routing or switching function
+10. Database Design
+10.1 Core Tables
+Table	Purpose	Key Fields
+profiles	Stores authenticated user profile and role.	id, full_name, phone, email, role, status, city
+donors	Stores donor-specific totals for record reporting only.	profile_id, total_verified_donations, total_pending_donations, total_rejected_donations
+shopkeepers	Stores approved shopkeeper details.	profile_id, shop_name, owner_name, phone, city, area, status
+donees	Stores offline-verified donee details uploaded by admin.	full_name, guardian_name, city, area, need_category, receiving_method, receiving_qr_image_url, spending_qr_code, status
+donation_records	Stores donor-submitted proof of direct external payment.	donor_id, donee_id, amount, payment_method, transaction_reference, proof_screenshot_url, status
+spending_records	Stores shopkeeper purchase records for transparency.	shopkeeper_id, donee_id, amount, items_description, receipt_photo_url, review_status
+notifications	Stores role-based alerts.	profile_id, title, message, type, metadata, is_read
+audit_logs	Stores admin and financial-proof action history.	actor_profile_id, action, entity_type, entity_id, old_data, new_data
+10.2 Critical Data Rule
+•	Do not create wallet_balance.
+•	Do not create topups.
+•	Do not create internal transfer table.
+•	Do not create shopkeeper receivable or settlement module in MVP.
+•	Donation records are proof records only.
+•	Spending records are transparency records only.
+11. Prerequisites
+11.1 Technical Accounts and Tools
+•	Cursor installed
+•	Node.js LTS installed
+•	Git installed
+•	GitHub account
+•	Supabase account
+•	Vercel account
+•	Sample images for testing
+11.2 Supabase Setup
+•	Create a new Supabase project.
+•	Save project URL and anon key.
+•	Save service role key securely - never expose it in frontend.
+•	Create storage buckets after schema is ready.
+•	Enable RLS before production testing.
+11.3 Operational Inputs Needed
+•	Donee verification criteria
+•	Donee approval process
+•	Who can verify payment proof
+•	What screenshot/reference is required
+•	How to handle fake/duplicate payment proof
+•	What donee info can be shown to donors
+•	What donee info can be shown to shopkeepers
+•	Who can approve/reject spending records
+11.4 Sample Test Data
+•	Two dummy donors
+•	Two dummy shopkeepers
+•	Five dummy donees
+•	Dummy receiving QR images
+•	Dummy payment screenshots
+•	Dummy receipt photos
+12. Cursor Prompt Chain and Test Checklist
+Use the following prompts one by one in Cursor. After each prompt, run the test checklist before moving to the next prompt.
+Prompt 1 - Create Project Blueprint
+Cursor Prompt
+Create a complete product and technical blueprint for a mobile-first donor-donee transparency platform.
+
+Business model:
+The platform does not receive money.
+The platform does not hold money.
+The platform does not store donor funds.
+The platform does not create real cash wallets.
+The platform does not process, route, pool, transfer, or settle payments.
+The platform only connects donors with offline-verified donees and records direct payment proof and transparency data.
+
+Donee discovery model:
+Donees are found and verified outside the app through field work, community references, local shopkeeper references, NGO/social worker references, mosque/community networks, or internal verification visits.
+Donees do not register inside the app.
+Donees have no login.
+Only admin uploads selected/approved donees into the app after offline verification.
+
+Users:
+1. Admin
+2. Donor
+3. Shopkeeper
+4. Donee without login
+
+Each donee has two QR concepts:
+1. Receiving QR: EasyPaisa/JazzCash/Raast/bank QR uploaded by admin. Donor uses it to pay directly outside the app.
+2. Spending Identity QR: generated by app and printed physically for the donee. Shopkeeper scans it to record purchases.
+
+Donor flow:
+- Donor logs in.
+- Donor views approved donees only.
+- Donor selects a donee.
+- Donor sees receiving QR.
+- Donor pays directly outside the app.
+- Donor uploads payment screenshot/reference.
+- Donation record becomes pending verification.
+- Admin verifies it.
+- It appears in donor’s Impact Wallet / My Donation Records.
+
+Impact Wallet is not a real money wallet. It only shows pending and verified donation records.
+
+Shopkeeper flow:
+- Shopkeeper logs in.
+- Donee visits shop with physical spending QR.
+- Shopkeeper scans spending QR.
+- Shopkeeper enters purchase amount and item details.
+- Shopkeeper uploads optional receipt photo.
+- Admin can review spending record.
+- Donor receives spending visibility notification if related to a donee they supported.
+
+Create /docs/PROJECT_BLUEPRINT.md including:
+- Product objective
+- No-custody model
+- Offline donee discovery model
+- Role definitions
+- User journeys
+- Route structure
+- Database tables
+- QR logic
+- Donation proof verification flow
+- Spending record flow
+- Security model
+- RLS plan
+- MVP scope
+- Future payment integration boundaries
+- Testing plan
+
+Do not write app code yet.
+What to Check/Test After This Prompt
+•	Blueprint clearly says platform does not receive/hold money.
+•	Blueprint says donees are found and verified outside the app.
+•	No public donee signup is included.
+•	Impact Wallet is described as record-only.
+•	No donor wallet balance is included.
+Prompt 2 - Scaffold the App
+Cursor Prompt
+Now scaffold the actual app.
+
+Use:
+- Next.js App Router
+- TypeScript
+- Tailwind CSS
+- shadcn/ui
+- Supabase
+- zod
+- react-hook-form
+- qrcode
+- html5-qrcode
+- lucide-react
+
+Create folder structure:
+/app
+  /(public)
+  /(auth)
+  /admin
+  /donor
+  /shopkeeper
+  /api
+/components
+/lib
+/types
+/hooks
+/docs
+/supabase
+
+Create pages:
+- /
+- /how-it-works
+- /login
+- /login/donor
+- /login/shopkeeper
+- /admin/login
+- /donor/dashboard
+- /admin/dashboard
+- /shopkeeper/dashboard
+
+Create shared:
+- App layout
+- Auth layout
+- Admin layout
+- Donor mobile layout
+- Shopkeeper mobile layout
+- Reusable cards/buttons/forms
+
+UI style:
+- Mobile-first
+- Simple charity/fintech feel
+- Clear no-custody messaging
+- Soft cards
+- Large buttons
+- Easy for non-technical users
+
+Add .env.example:
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+
+Do not implement database logic yet.
+After setup, provide terminal commands to run the app.
+What to Check/Test After This Prompt
+•	npm install runs successfully.
+•	npm run dev opens app.
+•	Home, login, donor, shopkeeper, admin placeholder pages load.
+•	Mobile layout looks clean.
+•	No TypeScript errors.
+Prompt 3 - Create Supabase Schema
+Cursor Prompt
+Create Supabase SQL migrations for the no-custody donor-donee transparency app.
+
+Important:
+There must be no donor wallet balance table.
+There must be no cash balance.
+There must be no internal money transfer.
+There must be no top-up table.
+Use donation_records as proof of direct donor-to-donee payment.
+
+Create enums:
+- user_role: admin, donor, shopkeeper
+- user_status: active, pending, blocked
+- donee_status: draft, under_review, approved, paused, blocked, rejected
+- donation_status: pending_verification, verified, rejected
+- payment_method: easypaisa, jazzcash, raast, bank_transfer, cash, other
+- spending_payment_status: paid_by_donee, paid_by_donor_direct, unknown, pending_review
+- review_status: pending_admin_review, approved, rejected
+
+Create tables:
+1. profiles
+2. donors
+3. shopkeepers
+4. donees
+5. donation_records
+6. spending_records
+7. notifications
+8. audit_logs
+
+The donees table must include offline verification fields:
+- verification_source
+- verification_date
+- verified_by_name
+- reason_for_support
+- household_condition_notes
+- monthly_estimated_need
+- risk_notes
+- internal_approval_status
+
+The donees table must also include payment/QR fields:
+- receiving_method
+- receiving_account_title
+- receiving_account_masked
+- receiving_qr_image_url
+- spending_qr_code
+
+The donation_records table must include:
+- donor_id
+- donee_id
+- amount
+- payment_method
+- transaction_reference
+- proof_screenshot_url
+- status
+- admin_note
+- verified_by
+- verified_at
+
+The spending_records table must include:
+- shopkeeper_id
+- donee_id
+- related_donation_record_id nullable
+- amount
+- items_description
+- receipt_photo_url
+- payment_status
+- review_status
+- admin_note
+
+Create indexes for:
+- donation_records donor_id
+- donation_records donee_id
+- donation_records status
+- spending_records donee_id
+- spending_records shopkeeper_id
+- donees spending_qr_code
+- donees internal_approval_status
+
+Add SQL functions:
+1. verify_donation_record(record_id, admin_note)
+2. reject_donation_record(record_id, admin_note)
+3. create_spending_record(shopkeeper_id, spending_qr_code, amount, items_description, receipt_photo_url, payment_status)
+
+Function rules:
+- verify_donation_record changes status to verified and creates donor notification.
+- reject_donation_record changes status to rejected and creates donor notification.
+- create_spending_record validates spending_qr_code and approved/active donee, then creates spending record.
+
+Do not create any function that moves money or updates wallet balance.
+What to Check/Test After This Prompt
+•	No wallet_balance field exists.
+•	No topups table exists.
+•	No settlement table exists.
+•	Donees include offline verification fields.
+•	Functions update statuses only, not balances.
+Prompt 4 - Add Row Level Security
+Cursor Prompt
+Add Supabase RLS policies.
+
+Rules:
+- Admin can read/write everything.
+- Donor can read only approved donees.
+- Donor can create donation_records for themselves.
+- Donor can read only their own donation_records.
+- Donor cannot verify or reject donation_records.
+- Donor can read approved spending_records related to donees they donated to.
+- Shopkeeper can read their own shopkeeper profile.
+- Shopkeeper can create spending_records through secure RPC only.
+- Shopkeeper can read their own spending_records.
+- Donee has no login and no policies.
+- Audit logs are admin-only.
+- Storage files are protected by role.
+
+Create helper functions:
+- current_user_role()
+- is_admin()
+- current_profile_id()
+- is_donor_owner(donor_id)
+- is_shopkeeper_owner(shopkeeper_id)
+
+Enable RLS on all tables.
+
+Create /docs/SECURITY_MODEL.md explaining:
+- Why no-custody matters
+- Why donors cannot edit verification status
+- Why shopkeepers cannot see all donor/donee data
+- Why admin actions are logged
+- Why app does not control money
+What to Check/Test After This Prompt
+•	RLS enabled on all tables.
+•	Donor cannot approve own proof.
+•	Shopkeeper cannot see all donors.
+•	Admin can access all records.
+•	Audit logs are admin-only.
+Prompt 5 - Build Authentication and Role Routing
+Cursor Prompt
+Build authentication using Supabase Auth.
+
+Routes:
+- /login
+- /login/donor
+- /login/shopkeeper
+- /admin/login
+- /donor/dashboard
+- /shopkeeper/dashboard
+- /admin/dashboard
+
+Login behavior:
+- Donor login redirects to /donor/dashboard.
+- Shopkeeper login redirects to /shopkeeper/dashboard.
+- Admin login redirects to /admin/dashboard.
+- If user opens wrong role route, redirect to correct dashboard.
+- Blocked users cannot access dashboard.
+- Pending users see pending approval screen.
+
+Add:
+- Signup for donor only.
+- Shopkeeper accounts are created by admin.
+- Admin accounts are created manually in Supabase.
+- Logout button.
+- Protected route middleware.
+- Friendly errors.
+
+Do not allow public admin signup.
+Do not allow public shopkeeper signup.
+Do not allow donee signup.
+What to Check/Test After This Prompt
+•	Donor signup works.
+•	Admin public signup does not exist.
+•	Shopkeeper public signup does not exist.
+•	Donee signup does not exist.
+•	Wrong role routes redirect correctly.
+Prompt 6 - Build Admin Donee Management
+Cursor Prompt
+Build admin donee management.
+
+Routes:
+- /admin/donees
+- /admin/donees/new
+- /admin/donees/[id]
+- /admin/donees/[id]/edit
+- /admin/donees/[id]/qr
+
+Admin can:
+- Add only offline-verified donees.
+- Edit donee.
+- Set internal approval status: draft, under_review, approved, rejected, paused, blocked.
+- Upload donee photo.
+- Upload receiving QR image.
+- Enter receiving method.
+- Enter receiving account title.
+- Enter masked account number/details.
+- Generate spending identity QR.
+- Download/print spending QR card.
+
+Donee form fields:
+- Full name
+- Guardian name
+- City
+- Area
+- Address
+- Need category
+- Verification source
+- Verification date
+- Verified by
+- Reason for support
+- Household condition notes
+- Monthly estimated need
+- Risk notes
+- Receiving method
+- Receiving account title
+- Receiving account masked
+- Receiving QR image
+- Photo
+- Internal approval status
+
+Important UI note on receiving QR section:
+“This QR is used by the donor to pay the donee/receiver directly. The platform does not receive or hold this money.”
+
+QR page:
+- Show receiving QR uploaded by admin.
+- Show generated spending identity QR.
+- Label clearly:
+  1. Receiving QR - for donor direct payment
+  2. Spending Identity QR - for shopkeeper record only
+
+Only approved donees should be visible to donors.
+What to Check/Test After This Prompt
+•	Admin can create donee.
+•	Offline verification fields are present.
+•	Receiving QR uploads.
+•	Spending QR generates securely.
+•	Only approved donees visible to donor.
+•	No public donee application exists.
+Prompt 7 - Build Donor Donee List and Direct Donation Flow
+Cursor Prompt
+Build donor donee browsing and direct donation flow.
+
+Routes:
+- /donor/donees
+- /donor/donees/[id]
+- /donor/donate/[doneeId]
+- /donor/donations
+- /donor/impact-wallet
+
+Donor can:
+- View approved donees only.
+- Search by city, area, category.
+- Open donee profile.
+- See donee story/need and verification summary.
+- See receiving QR.
+- Donate directly outside the app.
+- Submit payment proof.
+
+Donation proof form:
+- Amount
+- Payment method
+- Transaction reference
+- Screenshot upload
+- Optional donor note
+
+On submit:
+- Create donation_records row with status pending_verification.
+- Do not update any wallet balance.
+- Do not mark verified automatically.
+- Show success message:
+“Your payment proof has been submitted. Once verified, it will appear in your Impact Wallet. This platform does not receive or hold your money.”
+
+Impact Wallet page:
+- Show clear note:
+“This is not a cash wallet. It only shows your direct donation records.”
+- Show:
+  - Total verified direct donations
+  - Pending donation proofs
+  - Rejected donation proofs
+  - Donees supported
+  - Recent spending updates
+What to Check/Test After This Prompt
+•	Donor sees approved donees only.
+•	Receiving QR is visible.
+•	Payment proof submission creates pending record.
+•	Impact Wallet shows record-only disclaimer.
+•	No Add Money, Withdraw, Transfer, or Balance wording appears.
+Prompt 8 - Build Admin Donation Verification
+Cursor Prompt
+Build admin donation proof verification.
+
+Route:
+/admin/donation-records
+
+Admin can:
+- View pending donation proofs.
+- See donor name.
+- See donee name.
+- See amount.
+- See payment method.
+- See transaction reference.
+- Open screenshot.
+- Verify donation.
+- Reject donation with reason.
+
+On verify:
+- Use secure RPC verify_donation_record.
+- Status becomes verified.
+- Donor gets notification.
+- Record appears in donor Impact Wallet as verified.
+
+On reject:
+- Use secure RPC reject_donation_record.
+- Status becomes rejected.
+- Admin note is saved.
+- Donor gets notification.
+
+Admin dashboard metrics:
+- Pending proofs
+- Verified direct donations total
+- Rejected proofs
+- Total approved donees
+- Total donees supported
+
+Important:
+Verification confirms the donation record only.
+It does not mean the platform received money.
+What to Check/Test After This Prompt
+•	Admin can verify proof.
+•	Donor sees verified record.
+•	Rejected proof shows reason.
+•	No balance updates occur.
+•	Audit log is created.
+Prompt 9 - Build Shopkeeper QR Scan and Spending Record
+Cursor Prompt
+Build shopkeeper QR scan and spending record module.
+
+Routes:
+- /shopkeeper/scan
+- /shopkeeper/record-spending/[spendingQrCode]
+- /shopkeeper/spending-records
+
+Shopkeeper flow:
+- Shopkeeper logs in.
+- Opens scanner.
+- Scans donee spending identity QR.
+- App validates QR code.
+- App shows limited donee info:
+  - Name
+  - Photo
+  - City/Area
+  - Status
+- Shopkeeper enters:
+  - Purchase amount
+  - Items purchased
+  - Receipt photo optional
+  - Payment status:
+    - Paid by donee
+    - Paid by donor directly
+    - Unknown
+    - Pending review
+- Submit record.
+
+Important:
+Shopkeeper spending record is for transparency only.
+The platform does not pay or settle the shopkeeper.
+
+After submission:
+- Spending record goes to pending_admin_review.
+- Admin can approve/reject.
+- If approved, related donors can see spending update.
+
+Add manual code input fallback if camera does not work.
+What to Check/Test After This Prompt
+•	Camera scanner works on mobile.
+•	Manual code fallback works.
+•	Invalid QR shows error.
+•	Valid QR opens donee spending page.
+•	Spending record does not create settlement/payable.
+Prompt 10 - Build Admin Spending Review
+Cursor Prompt
+Build admin spending record review.
+
+Route:
+/admin/spending-records
+
+Admin can:
+- View pending spending records.
+- See shopkeeper name.
+- See donee name.
+- See amount.
+- See items.
+- See receipt photo.
+- Approve spending record.
+- Reject spending record with reason.
+
+When approved:
+- review_status becomes approved.
+- Donors who have verified donation records for that donee receive notification.
+- Notification says:
+“A spending update was recorded for [Donee Name]: Rs. [amount] at [Shop Name] for [items].”
+
+When rejected:
+- review_status becomes rejected.
+- Admin note is saved.
+- Shopkeeper sees rejection reason.
+
+Important:
+Approval means the spending record is approved for transparency.
+It does not mean platform paid shopkeeper.
+What to Check/Test After This Prompt
+•	Admin can approve/reject spending.
+•	Donor sees only approved spending updates.
+•	Rejected spending hidden from donor.
+•	No settlement module appears.
+•	Notification is generated.
+Prompt 11 - Build Reports
+Cursor Prompt
+Build reporting pages.
+
+Admin reports route:
+/admin/reports
+
+Reports:
+1. Donee report
+- Donee name
+- City
+- Verified direct donations amount
+- Number of donors
+- Approved spending records
+- Last spending date
+
+2. Donor report
+- Donor name
+- Total verified direct donations
+- Pending proofs
+- Rejected proofs
+- Donees supported
+
+3. Shopkeeper report
+- Shopkeeper name
+- Total spending records submitted
+- Approved records
+- Rejected records
+- Total approved purchase amount
+
+4. Donation proof report
+- Date
+- Donor
+- Donee
+- Amount
+- Payment method
+- Status
+- Verified by
+
+Add filters:
+- Date range
+- City
+- Donee
+- Donor
+- Shopkeeper
+- Status
+
+Add CSV export.
+
+Important:
+Reports must say “verified direct donations”, not “platform collections”.
+What to Check/Test After This Prompt
+•	Reports load.
+•	CSV exports.
+•	Terms are correct.
+•	No report says platform received money.
+•	No payable/receivable reports exist.
+Prompt 12 - Build Public Trust and No-Custody Pages
+Cursor Prompt
+Build public trust and platform policy pages.
+
+Routes:
+- /how-it-works
+- /trust-and-verification
+- /no-custody-policy
+- /privacy
+- /terms
+
+The /no-custody-policy page must clearly state:
+- We do not receive donations.
+- We do not hold donor funds.
+- We do not operate a wallet.
+- We do not process payments.
+- Donors pay directly to the donee/receiver using their own payment app.
+- Payment screenshots are used only for proof and transparency.
+- Verified status means the platform reviewed submitted proof.
+- Spending updates are based on shopkeeper-submitted records and admin review.
+
+The /trust-and-verification page must explain:
+- Donees are found and verified outside the app.
+- Donees cannot self-register.
+- Only admin-approved donees appear to donors.
+- Verification does not guarantee future conduct; it is a best-effort trust process.
+
+Add this note on donation pages:
+“Your payment happens outside this platform. Please verify receiver details before sending money.”
+
+Add this note on Impact Wallet:
+“This is not a cash wallet. It only shows your direct donation records.”
+What to Check/Test After This Prompt
+•	No-custody policy is clear.
+•	Offline donee verification is explained.
+•	Donation page warning visible.
+•	Impact Wallet disclaimer visible.
+•	Terms/privacy mention screenshot and receipt storage.
+Prompt 13 - Add Storage Buckets
+Cursor Prompt
+Add Supabase Storage buckets:
+
+1. donee-photos
+2. receiving-qr-images
+3. donation-proofs
+4. receipt-photos
+
+Rules:
+- Admin can upload donee photos.
+- Admin can upload receiving QR images.
+- Donor can upload donation proof screenshots for their own records.
+- Shopkeeper can upload receipt photos for their own spending records.
+- Admin can view all.
+- Users should only view files they are allowed to view.
+- Use signed URLs for private files where needed.
+
+Add validation:
+- Images only: jpg, png, webp
+- Max file size: 5MB
+- Friendly error messages
+What to Check/Test After This Prompt
+•	All upload types work.
+•	Large files rejected.
+•	PDFs rejected.
+•	Unauthorized users cannot access private files.
+•	Signed URLs work where required.
+Prompt 14 - Add Notifications
+Cursor Prompt
+Build notification system.
+
+Notifications needed:
+
+Donor:
+- Donation proof submitted.
+- Donation proof verified.
+- Donation proof rejected.
+- Spending update approved for a donee they supported.
+
+Shopkeeper:
+- Spending record submitted.
+- Spending record approved.
+- Spending record rejected.
+
+Admin:
+- New donation proof submitted.
+- New spending record submitted.
+- New donor signup.
+- New donee added for review.
+- New risk flag if added later.
+
+Create notification dropdown/page for each role.
+
+Routes:
+- /donor/notifications
+- /shopkeeper/notifications
+- /admin/notifications
+
+Add unread count and mark-as-read feature.
+What to Check/Test After This Prompt
+•	All role notifications appear.
+•	Unread count works.
+•	Mark as read works.
+•	Donor gets proof status notification.
+•	Admin gets new proof/spending notification.
+Prompt 15 - Add Audit Logs
+Cursor Prompt
+Add audit logs for all important actions.
+
+Log:
+- Admin creates donee.
+- Admin edits donee.
+- Admin approves/rejects/pauses/blocks donee.
+- Admin uploads receiving QR.
+- Donor submits donation proof.
+- Admin verifies donation proof.
+- Admin rejects donation proof.
+- Shopkeeper submits spending record.
+- Admin approves spending record.
+- Admin rejects spending record.
+- User role/status changes.
+
+Create route:
+/admin/audit-logs
+
+Admin can filter by:
+- Action
+- Actor
+- Entity type
+- Date range
+
+Do not allow audit logs to be edited or deleted from UI.
+What to Check/Test After This Prompt
+•	Every important action creates audit log.
+•	Audit logs are read-only.
+•	Only admin can view logs.
+•	Filters work.
+Prompt 16 - Add Risk Controls
+Cursor Prompt
+Add basic risk controls.
+
+Donation proof risk flags:
+- Duplicate transaction reference.
+- Same screenshot uploaded twice if possible.
+- Unusually high amount.
+- Missing transaction reference.
+- Blurry or missing screenshot.
+
+Spending record risk flags:
+- Same donee scanned multiple times within short time.
+- Same shopkeeper submits many records for same donee.
+- High purchase amount.
+- Missing receipt for high amount.
+- Items description too vague.
+
+Donee verification risk flags:
+- Missing verification source.
+- Missing receiving account title.
+- QR receiver name does not match provided details.
+- Too little verification evidence.
+
+Create route:
+/admin/risk
+
+Admin can:
+- View flagged records.
+- Mark as reviewed.
+- Add review note.
+
+Do not automatically reject records.
+Only flag for admin review.
+What to Check/Test After This Prompt
+•	Duplicate reference flagged.
+•	High amount flagged.
+•	Missing donee verification source flagged.
+•	Admin can review flags.
+•	Flags do not automatically reject records.
+Prompt 17 - Add PWA and Mobile Polish
+Cursor Prompt
+Make the app installable as a mobile PWA.
+
+Add:
+- manifest.json
+- app icons placeholders
+- mobile theme color
+- responsive layouts
+- offline fallback page if possible
+- mobile bottom navigation for donor
+- mobile bottom navigation for shopkeeper
+- clean admin sidebar for desktop/tablet
+
+Improve:
+- QR scanner mobile UX
+- Manual QR code input fallback
+- Large buttons
+- Simple forms
+- Success screens
+- Error screens
+- Empty states
+- Clear no-custody messages on donation screens
+What to Check/Test After This Prompt
+•	Mobile view is clean.
+•	PWA install prompt appears where supported.
+•	Bottom navigation works.
+•	Scanner fallback works.
+•	No-custody messaging remains visible.
+Prompt 18 - Seed Data and Testing Guide
+Cursor Prompt
+Create seed data and a complete testing guide.
+
+Seed:
+- 1 admin
+- 2 donors
+- 2 shopkeepers
+- 5 offline-verified donees
+- Receiving QR sample images
+- Spending QR codes
+- Pending donation records
+- Verified donation records
+- Rejected donation records
+- Pending spending records
+- Approved spending records
+- Notifications
+
+Create:
+/docs/TESTING_GUIDE.md
+
+Testing guide must include:
+1. Admin creates offline-verified donee.
+2. Admin uploads receiving QR.
+3. Admin generates spending QR.
+4. Donor views approved donee.
+5. Donor sends payment outside app.
+6. Donor submits proof.
+7. Admin verifies proof.
+8. Donor sees record in Impact Wallet.
+9. Shopkeeper scans donee spending QR.
+10. Shopkeeper submits purchase record.
+11. Admin approves spending record.
+12. Donor sees spending update.
+13. Reports update.
+
+Also test:
+- Rejected proof.
+- Invalid QR.
+- Blocked donee.
+- Blocked shopkeeper.
+- Duplicate transaction reference.
+- Unauthorized route access.
+- No wallet/balance/payable/settlement module exists.
+What to Check/Test After This Prompt
+•	Seed data creates all roles.
+•	Full end-to-end test works.
+•	Rejected proof flow works.
+•	Invalid QR flow works.
+•	No wallet or settlement concept appears.
+Prompt 19 - Deployment Guide
+Cursor Prompt
+Create deployment guide.
+
+Create:
+/docs/DEPLOYMENT_GUIDE.md
+
+Include:
+- Supabase setup
+- Environment variables
+- Storage bucket setup
+- RLS setup
+- Vercel deployment
+- Domain setup
+- Admin user creation
+- Production checklist
+- Backup recommendations
+- Security checklist
+- No-custody launch checklist
+
+Add README.md with:
+- Project overview
+- Offline donee verification model
+- No-custody model
+- Local setup
+- Scripts
+- Environment variables
+- Deployment steps
+- Testing steps
+What to Check/Test After This Prompt
+•	README is complete.
+•	Deployment guide is clear.
+•	Supabase env variables are documented.
+•	No service role key is exposed.
+•	No-custody launch checklist included.
+Prompt 20 - Final Production Review
+Cursor Prompt
+Review the full app for production readiness.
+
+Check:
+- TypeScript errors
+- Build errors
+- Broken routes
+- Missing RLS policies
+- Missing storage policies
+- Unauthorized access
+- Role redirects
+- Offline donee discovery wording
+- No-custody wording
+- No wallet wording issue
+- No app balance logic
+- No payment processing logic
+- QR security
+- File upload security
+- Mobile responsiveness
+- Admin review flows
+- Audit logs
+- Risk flags
+- Reports
+
+Fix all issues.
+
+Run:
+npm run build
+
+Create final checklist:
+/docs/PRODUCTION_CHECKLIST.md
+
+The checklist must include a section:
+“Money Handling Confirmation”
+
+With these confirmations:
+- Platform does not receive donations.
+- Platform does not hold funds.
+- Platform does not create donor cash wallet.
+- Platform does not process payments.
+- Platform does not settle shopkeepers.
+- Donor pays receiver directly outside the app.
+- App only records proof and transparency data.
+
+The checklist must include a section:
+“Donee Discovery Confirmation”
+
+With these confirmations:
+- Donees are found outside the app.
+- Donees are verified manually before upload.
+- Donees do not self-register.
+- Donees do not login.
+- Only admin-approved donees are visible to donors.
+What to Check/Test After This Prompt
+•	npm run build passes.
+•	Production checklist exists.
+•	Money handling confirmation is included.
+•	Donee discovery confirmation is included.
+•	No wallet/payment/settlement logic remains.
+13. Final QA Checklist
+13.1 Money Handling Confirmation
+•	Platform does not receive donations.
+•	Platform does not hold funds.
+•	Platform does not create donor cash wallet.
+•	Platform does not process payments.
+•	Platform does not settle shopkeepers.
+•	Donor pays receiver directly outside the app.
+•	App only records proof and transparency data.
+13.2 Donee Discovery Confirmation
+•	Donees are found outside the app.
+•	Donees are verified manually before upload.
+•	Donees do not self-register.
+•	Donees do not login.
+•	Only admin-approved donees are visible to donors.
+13.3 MVP Completion Confirmation
+•	Admin can upload offline-verified donee.
+•	Admin can upload receiving QR.
+•	Admin can generate spending identity QR.
+•	Donor can view approved donee and submit direct payment proof.
+•	Admin can verify/reject proof.
+•	Verified proof appears in Impact Wallet as record only.
+•	Shopkeeper can scan spending QR and submit spending record.
+•	Admin can approve/reject spending record.
+•	Donor receives approved spending update.
+•	Reports use correct language.
+•	No public donee signup exists.
+14. References
+The following official references support the payment/regulatory orientation used in this document. This document is not legal advice; final launch should be reviewed by a qualified legal/payment compliance advisor.
+•	State Bank of Pakistan - Electronic Money Institutions: https://www.sbp.org.pk/ps/EMI.htm
+•	State Bank of Pakistan - Payment Systems, PSO/PSP: https://www.sbp.org.pk/ps/PSOSP.htm
+•	State Bank of Pakistan - Raast P2M QR-based payments: https://www.sbp.org.pk/dfs/Raast-P2M.html
+•	State Bank of Pakistan - Launch of Raast P2M Service: https://www.sbp.org.pk/psd/2023/C4.htm
+•	JazzCash - Online Payment Gateway: https://www.jazzcash.com.pk/corporate/online-payment-gateway/
