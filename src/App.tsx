@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
-import { Home, QrCode, History, User, Scan, LayoutDashboard, LogOut, Menu, X, ArrowLeft, Bell, Sparkles, Send, Loader2, Heart, Plus, Wallet, Landmark, ClipboardList, CheckCircle2, ShoppingBag, Receipt, ArrowRight, Camera, Upload, Edit, Users, FileText, Activity, ShieldCheck, HelpCircle, Copy, Check, RefreshCw, Image as ImageIcon } from 'lucide-react';
+import { Home, QrCode, History, User, Scan, LayoutDashboard, LogOut, Menu, X, ArrowLeft, Bell, Sparkles, Send, Loader2, Heart, Plus, Minus, Wallet, Landmark, ClipboardList, CheckCircle2, ShoppingBag, Receipt, ArrowRight, Camera, Upload, Edit, Users, FileText, Activity, ShieldCheck, HelpCircle, Copy, Check, RefreshCw, Image as ImageIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth, Donee } from './context/AuthContext';
 import { cn, formatCurrency } from './lib/utils';
@@ -43,7 +43,11 @@ const Modal = ({ isOpen, onClose, title, children }: { isOpen: boolean, onClose:
 
 const ImageViewer = ({ src, isOpen, onClose }: { src: string | null, isOpen: boolean, onClose: () => void }) => {
   const [scale, setScale] = useState(1);
-  const [position, setPosition] = useState({ x: 0, y: 0 });
+
+  // Reset scale when closed
+  useEffect(() => {
+    if (!isOpen) setScale(1);
+  }, [isOpen]);
 
   return (
     <AnimatePresence>
@@ -52,40 +56,49 @@ const ImageViewer = ({ src, isOpen, onClose }: { src: string | null, isOpen: boo
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-black z-[100] flex flex-col items-center justify-center overflow-hidden"
+          className="fixed inset-0 bg-black z-[100] flex flex-col items-center justify-center"
         >
+          {/* Close Button Top Right */}
           <div className="absolute top-10 right-6 z-[110]">
             <button
-              onClick={() => { setScale(1); setPosition({x:0, y:0}); onClose(); }}
-              className="p-4 bg-white/10 backdrop-blur-md rounded-full text-white active:scale-90 transition-all border border-white/20"
+              onClick={onClose}
+              className="p-4 bg-white/10 backdrop-blur-md rounded-full text-white active:scale-90 transition-all border border-white/20 shadow-xl"
             >
               <X className="w-6 h-6" />
             </button>
           </div>
 
-          <motion.div
-            drag
-            dragConstraints={{ left: -300, right: 300, top: -500, bottom: 500 }}
-            style={{ x: position.x, y: position.y, scale }}
-            onPointerDown={(e) => {
-              if (e.pointerType === 'touch' && scale === 1) {
-                // Double tap to zoom simulation or just let standard drag happen
-              }
-            }}
-            className="w-full h-full flex items-center justify-center p-4 cursor-grab active:cursor-grabbing"
-          >
-            <img
+          {/* Image Container */}
+          <div className="w-full h-full flex items-center justify-center overflow-auto p-4">
+            <motion.img
               src={src}
               alt="Payment Proof"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale, opacity: 1 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
               className="max-w-full max-h-full object-contain shadow-2xl rounded-lg"
-              onDoubleClick={() => setScale(prev => prev === 1 ? 2.5 : 1)}
+              style={{ touchAction: 'none' }}
+              onDoubleClick={() => setScale(prev => prev === 1 ? 2 : 1)}
             />
-          </motion.div>
+          </div>
 
-          <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex items-center space-x-6 bg-black/40 backdrop-blur-xl px-6 py-3 rounded-full border border-white/10 text-white">
-             <button onClick={() => setScale(prev => Math.max(1, prev - 0.5))} className="p-2"><Minus className="w-5 h-5" /></button>
-             <span className="text-[10px] font-bold uppercase tracking-widest">{Math.round(scale * 100)}%</span>
-             <button onClick={() => setScale(prev => Math.min(4, prev + 0.5))} className="p-2"><Plus className="w-5 h-5" /></button>
+          {/* Zoom Controls Bottom */}
+          <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex items-center space-x-8 bg-black/40 backdrop-blur-xl px-8 py-3 rounded-full border border-white/10 text-white shadow-2xl z-[110]">
+             <button
+               onClick={() => setScale(prev => Math.max(1, prev - 0.5))}
+               className="p-2 active:scale-75 transition-transform"
+             >
+               <Minus className="w-6 h-6" />
+             </button>
+             <span className="text-[12px] font-black uppercase tracking-[0.2em] w-12 text-center">
+               {Math.round(scale * 100)}%
+             </span>
+             <button
+               onClick={() => setScale(prev => Math.min(4, prev + 0.5))}
+               className="p-2 active:scale-75 transition-transform"
+             >
+               <Plus className="w-6 h-6" />
+             </button>
           </div>
         </motion.div>
       )}
@@ -115,18 +128,18 @@ const HomePage = ({ onViewImage }: { onViewImage: (src: string) => void }) => {
     setTimeout(() => setIsCopied(false), 2000);
   };
 
-  const isDonor = user?.role === 'donor';
-  const isShop = user?.role === 'shopkeeper';
-  const isAdmin = user?.role === 'admin';
+  const isDonor = user?.role?.toLowerCase() === 'donor';
+  const isShop = user?.role?.toLowerCase() === 'shopkeeper';
+  const isAdmin = user?.role?.toLowerCase() === 'admin';
 
   useEffect(() => {
-    if (user?.role === 'shopkeeper') {
+    if (isShop) {
       supabase.from('spending_records').select('*, donees(full_name)')
-        .eq('shopkeeper_id', user.id)
+        .eq('shopkeeper_id', user!.id)
         .order('created_at', { ascending: false })
         .then(({ data }) => setSpendingHistory(data || []));
     }
-  }, [user]);
+  }, [user, isShop]);
 
   // Donee Registration Form
   const [newDonee, setNewDonee] = useState({
@@ -294,7 +307,7 @@ const HomePage = ({ onViewImage }: { onViewImage: (src: string) => void }) => {
         <div>
           <h1 className="text-2xl font-display font-bold text-primary">Assalamu Alaikum,</h1>
           <p className="text-slate-500 font-bold tracking-tight">
-            {isDonor ? 'Direct aid transparency.' : isShop ? 'Shopkeeper agent portal.' : 'System oversight active.'}
+            {isAdmin ? '🛡️ Admin System Oversight' : isDonor ? 'Direct aid transparency.' : 'Shopkeeper agent portal.'}
           </p>
         </div>
         <div className="flex space-x-2">
@@ -366,14 +379,18 @@ const HomePage = ({ onViewImage }: { onViewImage: (src: string) => void }) => {
 
       {isAdmin && (
         <div className="grid grid-cols-2 gap-4">
-          <button onClick={() => setView('verify')} className="bg-white p-6 rounded-[28px] shadow-sm border border-gray-100 flex flex-col items-center justify-center space-y-3 active:scale-95 transition-all">
-            <div className="p-4 bg-primary/5 rounded-2xl"><CheckCircle2 className="w-8 h-8 text-primary" /></div>
-            <span className="font-bold text-xs uppercase tracking-widest text-gray-700 text-center">Verify Proofs</span>
-          </button>
           <Link to="/admin/manage" className="bg-white p-6 rounded-[28px] shadow-sm border border-gray-100 flex flex-col items-center justify-center space-y-3 active:scale-95 transition-all">
             <div className="p-4 bg-blue-50 rounded-2xl"><Users className="w-8 h-8 text-blue-600" /></div>
             <span className="font-bold text-xs uppercase tracking-widest text-gray-700 text-center">Manage Donees</span>
           </Link>
+          <Link to="/admin/shopkeepers" className="bg-white p-6 rounded-[28px] shadow-sm border border-gray-100 flex flex-col items-center justify-center space-y-3 active:scale-95 transition-all">
+            <div className="p-4 bg-green-50 rounded-2xl"><ShoppingBag className="w-8 h-8 text-green-600" /></div>
+            <span className="font-bold text-xs uppercase tracking-widest text-gray-700 text-center">Manage Shops</span>
+          </Link>
+          <button onClick={() => setView('verify')} className="bg-white p-6 rounded-[28px] shadow-sm border border-gray-100 flex flex-col items-center justify-center space-y-3 active:scale-95 transition-all">
+            <div className="p-4 bg-primary/5 rounded-2xl"><CheckCircle2 className="w-8 h-8 text-primary" /></div>
+            <span className="font-bold text-xs uppercase tracking-widest text-gray-700 text-center">Verify Proofs</span>
+          </button>
           <Link to="/settlements" className="bg-white p-6 rounded-[28px] shadow-sm border border-gray-100 flex flex-col items-center justify-center space-y-3 active:scale-95 transition-all">
             <div className="p-4 bg-amber-50 rounded-2xl"><Landmark className="w-8 h-8 text-amber-600" /></div>
             <span className="font-bold text-xs uppercase tracking-widest text-gray-700 text-center">Review Records</span>
@@ -382,9 +399,9 @@ const HomePage = ({ onViewImage }: { onViewImage: (src: string) => void }) => {
             <div className="p-4 bg-purple-50 rounded-2xl"><FileText className="w-8 h-8 text-purple-600" /></div>
             <span className="font-bold text-xs uppercase tracking-widest text-gray-700 text-center">Reports</span>
           </button>
-          <button onClick={() => setView('audit_logs')} className="col-span-2 bg-white p-6 rounded-[28px] shadow-sm border border-gray-100 flex items-center justify-center space-x-4">
-            <Activity className="w-6 h-6 text-gray-400" />
-            <span className="font-bold text-xs uppercase tracking-widest text-gray-700">Audit & Security Logs</span>
+          <button onClick={() => setView('audit_logs')} className="bg-white p-6 rounded-[28px] shadow-sm border border-gray-100 flex flex-col items-center justify-center space-y-3 active:scale-95 transition-all">
+            <div className="p-4 bg-slate-50 rounded-2xl"><Activity className="w-8 h-8 text-slate-400" /></div>
+            <span className="font-bold text-xs uppercase tracking-widest text-gray-700 text-center">Audit Logs</span>
           </button>
         </div>
       )}
@@ -768,12 +785,6 @@ const HomePage = ({ onViewImage }: { onViewImage: (src: string) => void }) => {
           </div>
         )}
       </Modal>
-
-      <ImageViewer
-        src={activeViewerImage}
-        isOpen={!!activeViewerImage}
-        onClose={() => setActiveViewerImage(null)}
-      />
     </div>
   );
 };
@@ -974,11 +985,12 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
   const navItems = [
     { icon: Home, label: 'Home', path: '/home' },
     { icon: Scan, label: 'Scan', path: '/scan', showOnly: ['shopkeeper'] },
-    { icon: HelpCircle, label: 'Trust', path: '/how-it-works' },
-    { icon: QrCode, label: 'My ID', path: '/qr', showOnly: ['donor'] },
+    { icon: Users, label: 'Donees', path: '/admin/manage', showOnly: ['admin'] },
+    { icon: ShoppingBag, label: 'Shops', path: '/admin/shopkeepers', showOnly: ['admin'] },
+    { icon: Sparkles, label: 'Impact', path: '/impact', showOnly: ['donor'] },
     { icon: History, label: 'History', path: '/history' },
     { icon: User, label: 'Profile', path: '/profile' },
-  ].filter(item => !item.showOnly || item.showOnly.includes(user?.role || ''));
+  ].filter(item => !item.showOnly || item.showOnly.includes(user?.role?.toLowerCase() || ''));
 
   return (
     <div className="max-w-md mx-auto min-h-screen bg-slate-50 flex flex-col relative border-x border-gray-100">
@@ -1104,8 +1116,12 @@ const AdminManagePage = () => {
                   <p className="text-[10px] uppercase text-gray-400 font-bold">{donee.city}, {donee.area}</p>
                 </div>
               </div>
-              <div className={cn("px-3 py-1 rounded-full text-[8px] font-black uppercase", donee.status === 'approved' ? "bg-green-50 text-green-600" : "bg-red-50 text-red-600")}>
-                {donee.status}
+              <div className="text-right">
+                <p className="text-[8px] font-black text-primary uppercase">Available Credit</p>
+                <p className="text-sm font-bold text-slate-700">{formatCurrency(donee.funded_credit || 0)}</p>
+                <div className={cn("mt-1 px-3 py-1 rounded-full text-[8px] font-black uppercase inline-block", donee.status === 'approved' ? "bg-green-50 text-green-600" : "bg-red-50 text-red-600")}>
+                  {donee.status}
+                </div>
               </div>
             </div>
 
@@ -1180,6 +1196,158 @@ const AdminManagePage = () => {
               className="print:hidden w-full bg-primary text-white py-4 rounded-2xl font-bold uppercase tracking-widest disabled:opacity-50 mt-2 mb-8"
             >
               {isSubmitting ? 'Processing...' : (editingDonee ? 'Update Donee' : 'Register & Print Card')}
+            </button>
+         </div>
+      </Modal>
+    </div>
+  );
+};
+
+const AdminShopkeeperPage = () => {
+  const { user, getAdminShopkeepers, registerShopkeeper, updateShopkeeper } = useAuth();
+  const [shops, setShops] = useState<any[]>([]);
+  const [editingShop, setEditingShop] = useState<any | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const [formData, setFormData] = useState({
+    full_name: '',
+    phone: '',
+    shop_name: '',
+    city: '',
+    area: '',
+    payment_info: ''
+  });
+
+  const loadShops = () => getAdminShopkeepers().then(setShops);
+  useEffect(() => { loadShops(); }, []);
+
+  useEffect(() => {
+    if (editingShop) {
+      setFormData({
+        full_name: editingShop.profiles?.full_name || '',
+        phone: editingShop.profiles?.phone || '',
+        shop_name: editingShop.shop_name,
+        city: editingShop.city || '',
+        area: editingShop.area || '',
+        payment_info: editingShop.payment_info || ''
+      });
+      setIsModalOpen(true);
+    } else {
+      setFormData({ full_name: '', phone: '', shop_name: '', city: '', area: '', payment_info: '' });
+    }
+  }, [editingShop]);
+
+  const handleSave = async () => {
+    if (!formData.full_name || !formData.phone || !formData.shop_name) {
+      alert('Please fill in owner name, phone, and shop name.');
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      if (editingShop) {
+        await updateShopkeeper(editingShop.profile_id,
+          { shop_name: formData.shop_name, city: formData.city, area: formData.area, payment_info: formData.payment_info },
+          { full_name: formData.full_name, phone: formData.phone }
+        );
+        alert('Shopkeeper Updated!');
+      } else {
+        await registerShopkeeper(formData);
+        alert('Shopkeeper Registered!');
+      }
+      setIsModalOpen(false);
+      setEditingShop(null);
+      loadShops();
+    } catch (e: any) { alert(e.message); }
+    setIsSubmitting(false);
+  };
+
+  const handleUpdateStatus = async (id: string, status: string) => {
+    try {
+      await updateShopkeeper(id, { status } as any);
+      loadShops();
+    } catch (e: any) { alert(e.message); }
+  };
+
+  if (user?.role !== 'admin') return <Navigate to="/home" />;
+
+  return (
+    <div className="space-y-6 py-6">
+      <div className="flex justify-between items-center">
+        <h1 className="text-2xl font-display font-bold text-primary">Manage Shopkeepers</h1>
+        <button
+          onClick={() => { setEditingShop(null); setIsModalOpen(true); }}
+          className="p-3 bg-primary text-white rounded-2xl flex items-center space-x-2 active:scale-95 transition-all"
+        >
+          <Plus className="w-5 h-5" />
+          <span className="text-xs font-bold uppercase tracking-widest">New Shop</span>
+        </button>
+      </div>
+
+      <div className="grid gap-4">
+        {shops.map(shop => (
+          <div key={shop.profile_id} className="p-5 bg-white rounded-[32px] border border-gray-100 shadow-sm space-y-4">
+            <div className="flex justify-between items-start">
+              <div className="flex items-center space-x-4">
+                <div className="w-12 h-12 bg-green-50 rounded-2xl flex items-center justify-center text-xl">🏪</div>
+                <div>
+                  <p className="font-bold text-slate-900">{shop.shop_name}</p>
+                  <p className="text-[10px] uppercase text-gray-400 font-bold">{shop.profiles?.full_name} • {shop.profiles?.phone}</p>
+                </div>
+              </div>
+              <div className={cn("px-3 py-1 rounded-full text-[8px] font-black uppercase", shop.status === 'active' ? "bg-green-50 text-green-600" : "bg-red-50 text-red-600")}>
+                {shop.status}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-gray-50">
+               <div className="space-y-1">
+                 <p className="text-[8px] font-black text-gray-300 uppercase">Location</p>
+                 <p className="text-xs font-bold text-slate-600">{shop.area}, {shop.city}</p>
+               </div>
+               <div className="flex space-x-2">
+                  <button
+                    onClick={() => handleUpdateStatus(shop.profile_id, shop.status === 'active' ? 'blocked' : 'active')}
+                    className="p-2 bg-gray-50 rounded-xl text-gray-400 hover:text-primary transition-colors"
+                  >
+                    {shop.status === 'active' ? <X className="w-5 h-5" /> : <Check className="w-5 h-5" />}
+                  </button>
+                  <button
+                    onClick={() => setEditingShop(shop)}
+                    className="p-2 bg-primary/5 text-primary rounded-xl active:scale-95 transition-all"
+                  >
+                    <Edit className="w-5 h-5" />
+                  </button>
+               </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <Modal isOpen={isModalOpen} onClose={() => { setIsModalOpen(false); setEditingShop(null); }} title={editingShop ? "Edit Shopkeeper" : "Register New Shopkeeper"}>
+         <div className="space-y-4 pb-10">
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase text-gray-400 ml-2">Owner Details</label>
+              <input placeholder="Full Name" className="w-full p-4 bg-gray-50 rounded-2xl border-none text-sm" value={formData.full_name} onChange={e => setFormData({...formData, full_name: e.target.value})} />
+              <input placeholder="Phone Number" className="w-full p-4 bg-gray-50 rounded-2xl border-none text-sm" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase text-gray-400 ml-2">Shop Details</label>
+              <input placeholder="Shop Name" className="w-full p-4 bg-gray-50 rounded-2xl border-none text-sm" value={formData.shop_name} onChange={e => setFormData({...formData, shop_name: e.target.value})} />
+              <div className="grid grid-cols-2 gap-2">
+                <input placeholder="City" className="p-4 bg-gray-50 rounded-2xl border-none text-sm" value={formData.city} onChange={e => setFormData({...formData, city: e.target.value})} />
+                <input placeholder="Area" className="p-4 bg-gray-50 rounded-2xl border-none text-sm" value={formData.area} onChange={e => setFormData({...formData, area: e.target.value})} />
+              </div>
+              <input placeholder="Payment Info (EasyPaisa/JazzCash Account)" className="w-full p-4 bg-gray-50 rounded-2xl border-none text-sm" value={formData.payment_info} onChange={e => setFormData({...formData, payment_info: e.target.value})} />
+            </div>
+
+            <button
+              onClick={handleSave}
+              disabled={isSubmitting}
+              className="w-full bg-primary text-white py-4 rounded-2xl font-bold uppercase tracking-widest disabled:opacity-50 mt-4"
+            >
+              {isSubmitting ? 'Processing...' : (editingShop ? 'Update Shop' : 'Register Shop')}
             </button>
          </div>
       </Modal>
@@ -1274,6 +1442,65 @@ const SettlementPage = () => {
   );
 };
 
+const ImpactPage = () => {
+  const { user, spendingUpdates } = useAuth();
+
+  if (user?.role?.toLowerCase() !== 'donor') return <Navigate to="/home" />;
+
+  return (
+    <div className="space-y-8 py-6">
+      <section className="space-y-4">
+        <div className="flex items-center space-x-2">
+          <Sparkles className="w-5 h-5 text-primary" />
+          <h1 className="text-2xl font-display font-bold text-gray-800">Your Impact Journey</h1>
+        </div>
+
+        <div className="bg-slate-900 p-6 rounded-[32px] text-white mb-4">
+          <p className="text-xs leading-relaxed opacity-80 italic">"HaqDaar ensures that every rupee you donate reaches the donee. Below are the records of commodities released to the families you supported."</p>
+        </div>
+
+        <div className="space-y-3">
+          {spendingUpdates.length === 0 ? (
+            <div className="text-center py-12 bg-white rounded-3xl border border-dashed border-gray-200">
+              <Heart className="w-10 h-10 text-gray-100 mx-auto mb-2" />
+              <p className="text-gray-400 text-xs italic uppercase font-bold tracking-widest">No spending records yet for your supported beneficiaries.</p>
+            </div>
+          ) : (
+            spendingUpdates.map((imp, idx) => (
+              <div key={idx} className="p-5 bg-white rounded-[32px] border border-gray-100 shadow-sm space-y-3 relative overflow-hidden group">
+                <div className="flex justify-between items-start relative z-10">
+                  <div className="space-y-1">
+                    <p className="text-[8px] font-black text-primary uppercase tracking-widest">Beneficiary Impact</p>
+                    <p className="font-bold text-slate-900">{imp.donees?.full_name}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] font-bold text-slate-500">{new Date(imp.created_at).toLocaleDateString()}</p>
+                  </div>
+                </div>
+
+                <div className="bg-gray-50 p-4 rounded-2xl relative z-10">
+                  <p className="text-[8px] font-black text-gray-400 uppercase mb-1">Commodities Released</p>
+                  <p className="text-xs font-bold text-slate-700 leading-tight">{imp.items_description}</p>
+                </div>
+
+                <div className="flex justify-between items-center relative z-10 pt-1">
+                  <div className="flex items-center space-x-1">
+                    <CheckCircle2 className="w-3 h-3 text-green-500" />
+                    <span className="text-[9px] font-bold text-green-600 uppercase tracking-tighter">Verified Release</span>
+                  </div>
+                  <p className="text-sm font-display font-bold text-primary">{formatCurrency(imp.amount)}</p>
+                </div>
+
+                <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -mr-16 -mt-16 blur-2xl group-hover:bg-primary/10 transition-colors"></div>
+              </div>
+            ))
+          )}
+        </div>
+      </section>
+    </div>
+  );
+};
+
 const ProfilePage = () => {
   const { user, logout } = useAuth();
   const displayName = user?.full_name || user?.name || 'User';
@@ -1299,60 +1526,65 @@ const HistoryPage = ({ onViewImage }: { onViewImage: (src: string) => void }) =>
   const { myDonations, user } = useAuth();
   const [spendingHistory, setSpendingHistory] = useState<any[]>([]);
 
+  const isShop = user?.role?.toLowerCase() === 'shopkeeper';
+  const isDonor = user?.role?.toLowerCase() === 'donor';
+
   useEffect(() => {
-    if (user?.role === 'shopkeeper') {
+    if (isShop) {
       supabase.from('spending_records').select('*, donees(full_name)')
-        .eq('shopkeeper_id', user.id)
+        .eq('shopkeeper_id', user!.id)
         .order('created_at', { ascending: false })
         .then(({ data }) => setSpendingHistory(data || []));
     }
-  }, [user]);
+  }, [user, isShop]);
 
   return (
-    <div className="space-y-6 py-6">
-      <h1 className="text-2xl font-display font-bold text-primary">System Records</h1>
-      <div className="space-y-4">
-        {user?.role === 'donor' && myDonations.map(dn => (
-          <div key={dn.id} className="p-5 bg-white rounded-3xl border border-gray-100 shadow-sm flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-               <div className="p-3 bg-gray-50 rounded-2xl"><Receipt className="w-6 h-6 text-gray-400" /></div>
-               <div>
-                 <p className="font-bold text-sm">Direct Donation Proof</p>
-                 <p className="text-[10px] uppercase font-bold text-gray-400">{new Date(dn.created_at).toLocaleDateString()}</p>
-                 {dn.proof_screenshot_url && (
-                   <button
-                     onClick={() => onViewImage(dn.proof_screenshot_url!)}
-                     className="mt-1 text-[8px] font-black text-primary uppercase flex items-center bg-primary/5 px-2 py-1 rounded-md active:scale-95 transition-all"
-                   >
-                     <ImageIcon className="w-2 h-2 mr-1" /> View Sent Proof
-                   </button>
-                 )}
-               </div>
+    <div className="space-y-8 py-6">
+      <section className="space-y-4">
+        <h1 className="text-2xl font-display font-bold text-primary">System Records</h1>
+        <div className="space-y-4">
+          {isDonor && myDonations.map(dn => (
+            <div key={dn.id} className="p-5 bg-white rounded-3xl border border-gray-100 shadow-sm flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                 <div className="p-3 bg-gray-50 rounded-2xl"><Receipt className="w-6 h-6 text-gray-400" /></div>
+                 <div>
+                   <p className="font-bold text-sm">Direct Donation Proof</p>
+                   <p className="text-[10px] uppercase font-bold text-gray-400">{new Date(dn.created_at).toLocaleDateString()}</p>
+                   {dn.proof_screenshot_url && (
+                     <button
+                       onClick={() => onViewImage(dn.proof_screenshot_url!)}
+                       className="mt-1 text-[8px] font-black text-primary uppercase flex items-center bg-primary/5 px-2 py-1 rounded-md active:scale-95 transition-all"
+                     >
+                       <ImageIcon className="w-2 h-2 mr-1" /> View Sent Proof
+                     </button>
+                   )}
+                 </div>
+              </div>
+              <div className="text-right">
+                <p className="font-display font-bold text-primary">{formatCurrency(dn.amount)}</p>
+                <p className={cn("text-[8px] font-bold uppercase px-2 py-0.5 rounded-full", dn.status === 'verified' ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700")}>{dn.status}</p>
+              </div>
             </div>
-            <div className="text-right">
-              <p className="font-display font-bold text-primary">{formatCurrency(dn.amount)}</p>
-              <p className={cn("text-[8px] font-bold uppercase px-2 py-0.5 rounded-full", dn.status === 'verified' ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700")}>{dn.status}</p>
-            </div>
-          </div>
-        ))}
+          ))}
 
-        {user?.role === 'shopkeeper' && spendingHistory.map(sh => (
-          <div key={sh.id} className="p-5 bg-white rounded-3xl border border-gray-100 shadow-sm flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-               <div className="p-3 bg-gray-50 rounded-2xl"><ShoppingBag className="w-6 h-6 text-primary" /></div>
-               <div>
-                 <p className="font-bold text-sm">Goods Released</p>
-                 <p className="text-[10px] uppercase font-bold text-gray-400">{sh.donees?.full_name}</p>
-                 <p className="text-[8px] text-gray-300">{new Date(sh.created_at).toLocaleString()}</p>
-               </div>
+          {isShop && spendingHistory.map(sh => (
+            <div key={sh.id} className="p-5 bg-white rounded-3xl border border-gray-100 shadow-sm flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                 <div className="p-3 bg-gray-50 rounded-2xl"><ShoppingBag className="w-6 h-6 text-primary" /></div>
+                 <div>
+                   <p className="font-bold text-sm">Goods Released</p>
+                   <p className="text-[10px] uppercase font-bold text-gray-400">{sh.donees?.full_name}</p>
+                   <p className="text-[8px] text-gray-300">{new Date(sh.created_at).toLocaleString()}</p>
+                 </div>
+              </div>
+              <div className="text-right">
+                <p className="font-display font-bold text-slate-900">{formatCurrency(sh.amount)}</p>
+                <p className={cn("text-[8px] font-bold uppercase px-2 py-0.5 rounded-full", sh.settlement_status === 'settled' ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700")}>{sh.settlement_status}</p>
+              </div>
             </div>
-            <div className="text-right">
-              <p className="font-display font-bold text-slate-900">{formatCurrency(sh.amount)}</p>
-              <p className={cn("text-[8px] font-bold uppercase px-2 py-0.5 rounded-full", sh.settlement_status === 'settled' ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700")}>{sh.settlement_status}</p>
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      </section>
     </div>
   );
 };
@@ -1402,8 +1634,10 @@ export default function App() {
         <Route path="/login" element={!user ? <LoginPage /> : <Navigate to="/home" />} />
         <Route path="/home" element={user ? <Layout><HomePage onViewImage={setActiveViewerImage} /></Layout> : <Navigate to="/login" />} />
         <Route path="/scan" element={user ? <Layout><ScanPage /></Layout> : <Navigate to="/login" />} />
+        <Route path="/impact" element={user ? <Layout><ImpactPage /></Layout> : <Navigate to="/login" />} />
         <Route path="/history" element={user ? <Layout><HistoryPage onViewImage={setActiveViewerImage} /></Layout> : <Navigate to="/login" />} />
-        <Route path="/admin/manage" element={user?.role === 'admin' ? <Layout><AdminManagePage /></Layout> : <Navigate to="/login" />} />
+        <Route path="/admin/manage" element={user?.role?.toLowerCase() === 'admin' ? <Layout><AdminManagePage /></Layout> : <Navigate to="/login" />} />
+        <Route path="/admin/shopkeepers" element={user?.role?.toLowerCase() === 'admin' ? <Layout><AdminShopkeeperPage /></Layout> : <Navigate to="/login" />} />
         <Route path="/settlements" element={user ? <Layout><SettlementPage /></Layout> : <Navigate to="/login" />} />
         <Route path="/profile" element={user ? <Layout><ProfilePage /></Layout> : <Navigate to="/login" />} />
         <Route path="/how-it-works" element={<Layout><TrustPage /></Layout>} />

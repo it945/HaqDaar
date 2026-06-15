@@ -49,6 +49,19 @@ export interface SpendingRecord {
   created_at: string;
 }
 
+export interface Shopkeeper {
+  profile_id: string;
+  shop_name: string;
+  area?: string;
+  city?: string;
+  payment_info?: string;
+  status: 'active' | 'pending' | 'blocked';
+  profiles?: {
+    full_name: string;
+    phone: string;
+  };
+}
+
 interface AuthContextType {
   user: User | null;
   login: (phone: string) => Promise<void>;
@@ -56,6 +69,7 @@ interface AuthContextType {
   isLoading: boolean;
   donees: Donee[];
   myDonations: DonationRecord[];
+  spendingUpdates: any[]; // Added this
   submitDonationProof: (doneeId: string, amount: number, ref: string, imageUrl?: string) => Promise<void>;
   verifyDonation: (recordId: string, status: 'verified' | 'rejected') => Promise<void>;
   recordSpending: (doneeQr: string, amount: number, items: string) => Promise<void>;
@@ -65,11 +79,15 @@ interface AuthContextType {
   registerDonee: (data: Partial<Donee>) => Promise<void>;
   updateDonee: (id: string, data: Partial<Donee>) => Promise<void>;
   getAdminDonees: () => Promise<Donee[]>;
+  getAdminShopkeepers: () => Promise<Shopkeeper[]>;
+  registerShopkeeper: (data: any) => Promise<void>;
+  updateShopkeeper: (id: string, data: Partial<Shopkeeper>, profileData?: any) => Promise<void>;
   getSettlementData: () => Promise<any[]>;
   initiateSettlement: (shopId: string) => Promise<void>;
   reviewSpendingRecord: (recordId: string, status: 'verified' | 'rejected', note?: string) => Promise<void>;
   getAuditLogs: () => Promise<any[]>;
   getReports: () => Promise<any>;
+  getDonorImpactRecords: () => Promise<any[]>;
   isLocalFallback: boolean;
   error: string | null;
 }
@@ -88,15 +106,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [donees, setDonees] = useState<Donee[]>([]);
   const [myDonations, setMyDonations] = useState<DonationRecord[]>([]);
+  const [spendingUpdates, setSpendingUpdates] = useState<any[]>([]); // Added this
   const [isLocalFallback, setIsLocalFallback] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const savedUser = localStorage.getItem('haqdaar_user');
-    if (savedUser) {
-      setUser(JSON.parse(savedUser));
-    }
-    setIsLoading(false);
+    const initAuth = async () => {
+      const savedUser = localStorage.getItem('haqdaar_user');
+      if (savedUser) {
+        const parsed = JSON.parse(savedUser);
+        setUser(parsed);
+
+        // Background check: ensure profile exists in Supabase to prevent FK errors
+        const { data } = await supabase.from('profiles').select('id').eq('id', parsed.id).single();
+        if (!data) {
+          console.log("Profile missing in Supabase, attempting re-sync...");
+          await supabase.from('profiles').insert({
+            id: parsed.id,
+            full_name: parsed.full_name || parsed.name,
+            phone: parsed.phone,
+            role: parsed.role,
+            status: 'active'
+          });
+        }
+      }
+      setIsLoading(false);
+    };
+    initAuth();
   }, []);
 
   // Sync data based on role
@@ -114,34 +150,85 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (data) setMyDonations(data);
     };
 
+    const fetchSpendingUpdates = async () => {
+      if (user.role !== 'donor') return;
+
+      // 1. Find which donees this donor supported
+      const { data: donations } = await supabase
+        .from('donation_records')
+        .select('donee_id')
+        .eq('donor_id', user.id)
+        .eq('status', 'verified');
+
+      if (!donations || donations.length === 0) {
+        setSpendingUpdates([]);
+        return;
+      }
+      const ids = [...new Set(donations.map(d => d.donee_id))];
+
+      // 2. Fetch spending for those donees
+      const { data: spending } = await supabase
+        .from('spending_records')
+        .select('*, donees(full_name)')
+        .in('donee_id', ids)
+        .order('created_at', { ascending: false });
+
+      if (spending) setSpendingUpdates(spending);
+
+      // REAL-TIME: Listen for new spending records
+      const channel = supabase
+        .channel('donor_impact')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'spending_records' }, payload => {
+          if (ids.includes(payload.new.donee_id)) fetchSpendingUpdates();
+        })
+        .subscribe();
+    };
+
     fetchDonees();
     fetchMyDonations();
+    fetchSpendingUpdates();
   }, [user]);
 
   const login = async (phone: string) => {
     setIsLoading(true);
     setError(null);
     try {
-      // Automatic role lookup via phone number in profiles
-      const { data, error } = await supabase
+      // 1. Check if profile exists
+      let { data: profile, error: fetchError } = await supabase
         .from('profiles')
         .select('*')
         .eq('phone', phone)
         .single();
 
-      if (data) {
-        setUser(data);
-        localStorage.setItem('haqdaar_user', JSON.stringify(data));
-      } else {
-        // Fallback to local test users
+      // 2. If not in DB, check if it's a LOCAL TEST USER
+      if (!profile) {
         const local = LOCAL_USERS.find(u => u.phone === phone);
         if (local) {
-          setUser(local);
-          localStorage.setItem('haqdaar_user', JSON.stringify(local));
-          setIsLocalFallback(true);
-        } else {
-          throw new Error('No account found for this phone number.');
+          // AUTO-SYNC: Create the profile in Supabase immediately
+          const { data: newProfile, error: insertError } = await supabase
+            .from('profiles')
+            .insert({
+              id: local.id,
+              full_name: local.name,
+              phone: local.phone,
+              role: local.role,
+              status: 'active'
+            })
+            .select()
+            .single();
+
+          if (insertError) throw insertError;
+          profile = newProfile;
+          console.log("Auto-synced local user to Supabase:", phone);
         }
+      }
+
+      if (profile) {
+        setUser(profile);
+        localStorage.setItem('haqdaar_user', JSON.stringify(profile));
+        setIsLocalFallback(false);
+      } else {
+        throw new Error('No account found for this phone number. Please contact Admin.');
       }
     } catch (err: any) {
       setError(err.message);
@@ -160,6 +247,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!user) {
       alert("No user logged in!");
       return;
+    }
+
+    // 1. Ensure Profile exists in Supabase (Final safety check for Foreign Key)
+    const { data: profileCheck } = await supabase.from('profiles').select('id').eq('id', user.id).single();
+    if (!profileCheck) {
+      console.log("Creating missing profile for donor before donation...");
+      await supabase.from('profiles').insert({
+        id: user.id,
+        full_name: user.name,
+        phone: user.phone,
+        role: user.role,
+        status: 'active'
+      });
     }
 
     console.log('Submitting proof:', { doneeId, amount, ref, imageSize: imageUrl?.length });
@@ -347,15 +447,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
     if (error) throw error;
 
-    // Log Action
+    // Smart Logging: Only send actor_id if it's a valid UUID
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(user.id);
+
     await supabase.from('audit_logs').insert({
-      actor_id: user.id,
+      actor_id: isUuid ? user.id : null,
       action: 'REGISTER_DONEE',
       entity_type: 'donee',
       details: { name: data.full_name }
     });
 
-    // Refresh donees
     const { data: list } = await supabase.from('donees').select('*').eq('status', 'approved');
     if (list) setDonees(list);
   };
@@ -383,6 +484,104 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (user?.role !== 'admin') return [];
     const { data } = await supabase.from('donees').select('*').order('created_at', { ascending: false });
     return data || [];
+  };
+
+  const getAdminShopkeepers = async () => {
+    if (user?.role !== 'admin') return [];
+    const { data } = await supabase
+      .from('shopkeepers')
+      .select('*, profiles(full_name, phone)')
+      .order('status', { ascending: true });
+    return (data as any) || [];
+  };
+
+  const registerShopkeeper = async (data: any) => {
+    if (user?.role !== 'admin') return;
+
+    console.log("Starting Shopkeeper Registration for:", data.phone);
+
+    // 1. First, check if the profile exists using the phone number
+    const { data: existingProfile, error: fetchError } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('phone', data.phone);
+
+    if (fetchError) {
+      console.error("Fetch error:", fetchError);
+      throw new Error("Database check failed: " + fetchError.message);
+    }
+
+    let profileId;
+
+    if (existingProfile && existingProfile.length > 0) {
+      // Profile exists! Use that ID and update the role
+      profileId = existingProfile[0].id;
+      const { error: updateErr } = await supabase
+        .from('profiles')
+        .update({ full_name: data.full_name, role: 'shopkeeper' })
+        .eq('id', profileId);
+
+      if (updateErr) throw updateErr;
+      console.log("Updated existing profile ID:", profileId);
+    } else {
+      // Profile does NOT exist. Create a fresh one.
+      const { data: newProfile, error: insertError } = await supabase
+        .from('profiles')
+        .insert({
+          full_name: data.full_name,
+          phone: data.phone,
+          role: 'shopkeeper',
+          status: 'active'
+        })
+        .select('id')
+        .single();
+
+      if (insertError) {
+        console.error("Insert error:", insertError);
+        throw insertError;
+      }
+      profileId = newProfile.id;
+      console.log("Created fresh profile ID:", profileId);
+    }
+
+    // 2. Now handle the Shopkeepers table (Upsert links the profile ID)
+    const { error: shopError } = await supabase
+      .from('shopkeepers')
+      .upsert({
+        profile_id: profileId,
+        shop_name: data.shop_name,
+        area: data.area,
+        city: data.city,
+        payment_info: data.payment_info,
+        status: 'active'
+      });
+
+    if (shopError) {
+      console.error("Shopkeeper table error:", shopError);
+      throw shopError;
+    }
+
+    console.log("Shopkeeper Registration Complete!");
+  };
+
+  const updateShopkeeper = async (id: string, data: Partial<Shopkeeper>, profileData?: any) => {
+    if (user?.role !== 'admin') return;
+
+    if (Object.keys(data).length > 0) {
+      const { error: shopError } = await supabase
+        .from('shopkeepers')
+        .update(data)
+        .eq('profile_id', id);
+      if (shopError) throw shopError;
+    }
+
+    if (profileData && Object.keys(profileData).length > 0) {
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update(profileData)
+        .eq('id', id);
+      if (profileError) throw profileError;
+    }
   };
 
   const getSettlementData = async () => {
@@ -424,6 +623,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       totalSpending: spending?.reduce((a, b) => a + Number(b.amount), 0) || 0,
       activeDonees: doneesCount || 0
     };
+  };
+
+  const getDonorImpactRecords = async () => {
+    if (user?.role !== 'donor') return [];
+
+    // 1. Get all verified donations by this donor
+    const { data: verifiedDonations } = await supabase
+      .from('donation_records')
+      .select('donee_id')
+      .eq('donor_id', user.id)
+      .eq('status', 'verified');
+
+    if (!verifiedDonations || verifiedDonations.length === 0) return [];
+
+    const supportedDoneeIds = [...new Set(verifiedDonations.map(d => d.donee_id))];
+
+    // 2. Get spending records for these donees
+    const { data: spending } = await supabase
+      .from('spending_records')
+      .select('*, donees(full_name)')
+      .in('donee_id', supportedDoneeIds)
+      .order('created_at', { ascending: false });
+
+    return spending || [];
   };
 
   const initiateSettlement = async (shopId: string) => {
@@ -510,6 +733,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isLoading,
       donees,
       myDonations,
+      spendingUpdates,
       submitDonationProof,
       verifyDonation,
       recordSpending,
@@ -521,9 +745,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       reviewSpendingRecord,
       getAuditLogs,
       getReports,
+      getDonorImpactRecords,
       initiateJazzCash,
       updateDonee,
       getAdminDonees,
+      getAdminShopkeepers,
+      registerShopkeeper,
+      updateShopkeeper,
       isLocalFallback,
       error
     }}>
