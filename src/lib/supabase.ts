@@ -35,6 +35,62 @@ export type Tables = {
     funded_credit: number;
     created_at?: string;
   };
+  pledge_records: {
+    id: string;
+    donor_id: string;
+    donee_id: string;
+    amount: number;
+    remaining_amount: number;
+    status: 'active' | 'partially_spent' | 'fully_spent' | 'cancelled';
+    created_at: string;
+  };
+  spending_records: {
+    id: string;
+    shopkeeper_id: string;
+    donee_id: string;
+    donor_id?: string;
+    amount: number;
+    items_description: string;
+    payment_status: 'unpaid' | 'paid';
+    created_at: string;
+  };
+  pledge_spending_links: {
+    id: string;
+    pledge_id: string;
+    spending_id: string;
+    donor_id: string;
+    amount: number;
+    created_at: string;
+  };
+  shopkeeper_payments: {
+    id: string;
+    donor_id: string;
+    shopkeeper_id: string;
+    amount: number;
+    proof_screenshot_url?: string;
+    status: 'submitted' | 'acknowledged';
+    spending_record_ids: string[];
+    created_at: string;
+  };
+  notifications: {
+    id: string;
+    profile_id: string;
+    title: string;
+    message: string;
+    is_read: boolean;
+    metadata?: any;
+    created_at: string;
+  };
+  audit_logs: {
+    id: string;
+    actor_id: string;
+    action: string;
+    entity_type: string;
+    entity_id?: string;
+    details?: any;
+    created_at: string;
+  };
+  // Legacy tables (historical archive, no new writes)
   donation_records: {
     id: string;
     donor_id: string;
@@ -45,16 +101,6 @@ export type Tables = {
     proof_screenshot_url?: string;
     created_at: string;
   };
-  spending_records: {
-    id: string;
-    shopkeeper_id: string;
-    donee_id: string;
-    amount: number;
-    items_description: string;
-    settlement_status: 'pending_settlement' | 'settled' | 'rejected';
-    admin_note?: string;
-    created_at: string;
-  };
   settlement_records: {
     id: string;
     shopkeeper_id: string;
@@ -62,15 +108,6 @@ export type Tables = {
     status: 'pending_settlement' | 'settled';
     settled_at: string | null;
     admin_id: string;
-    created_at: string;
-  };
-  audit_logs: {
-    id: string;
-    actor_id: string;
-    action: string;
-    entity_type: string;
-    entity_id?: string;
-    details?: any;
     created_at: string;
   };
 };
