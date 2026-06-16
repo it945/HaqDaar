@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { Browser } from '@capacitor/browser';
+import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
 
 export interface User {
   id: string;
@@ -107,6 +109,58 @@ export interface ShopkeeperDonorSummary {
   spending_records: SpendingRecord[];
 }
 
+export interface TrendPoint {
+  period: string;
+  pledged: number;
+  consumed: number;
+}
+
+export interface DoneeBreakdown {
+  donee_id: string;
+  donee_name: string;
+  pledged: number;
+  consumed: number;
+}
+
+export interface DonorAnalytics {
+  total_pledged: number;
+  total_consumed: number;
+  total_remaining: number;
+  by_week: TrendPoint[];
+  by_month: TrendPoint[];
+  by_shopkeeper: ShopkeeperSpendingSummary[];
+  by_donee: DoneeBreakdown[];
+}
+
+export interface RankedEntity {
+  id: string;
+  name: string;
+  amount: number;
+}
+
+export interface ShopkeeperAnalytics {
+  total_distributed: number;
+  total_received: number;
+  top_donees: RankedEntity[];
+  top_donors: RankedEntity[];
+  by_week: TrendPoint[];
+  by_month: TrendPoint[];
+}
+
+export interface AdminAnalytics {
+  total_pledged: number;
+  total_spent: number;
+  total_paid: number;
+  active_donees: number;
+  active_shopkeepers: number;
+  active_donors: number;
+  by_week: TrendPoint[];
+  by_month: TrendPoint[];
+  top_donors: RankedEntity[];
+  top_shopkeepers: RankedEntity[];
+  top_donees: RankedEntity[];
+}
+
 interface AuthContextType {
   user: User | null;
   login: (phone: string) => Promise<void>;
@@ -136,6 +190,12 @@ interface AuthContextType {
   updateShopkeeper: (id: string, data: Partial<Shopkeeper>, profileData?: any) => Promise<void>;
   getAuditLogs: () => Promise<any[]>;
   getReports: () => Promise<any>;
+  getDonorTotalPaid: () => Promise<number>;
+  getShopkeeperTotalReceived: () => Promise<number>;
+  getDonorAnalytics: () => Promise<DonorAnalytics>;
+  getShopkeeperAnalytics: () => Promise<ShopkeeperAnalytics>;
+  getAdminAnalytics: () => Promise<AdminAnalytics>;
+  exportMyRecords: () => Promise<void>;
   isLocalFallback: boolean;
   error: string | null;
 }
@@ -148,6 +208,65 @@ const LOCAL_USERS: User[] = [
   { id: '00000000-0000-0000-0000-000000000001', name: 'Haris Donor', role: 'donor', status: 'active', phone: '03001111111' },
   { id: '00000000-0000-0000-0000-000000000002', name: 'Ahmed Store', role: 'shopkeeper', status: 'active', phone: '03002222222' }
 ];
+
+// ISO week label, e.g. "2026-W24"
+function weekLabel(date: Date): string {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const weekNum = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  return `${d.getUTCFullYear()}-W${String(weekNum).padStart(2, '0')}`;
+}
+
+function monthLabel(date: Date): string {
+  return date.toISOString().slice(0, 7); // YYYY-MM
+}
+
+// Buckets a list of { date, pledged, consumed } deltas into sorted trend points by period.
+function bucketTrend(
+  entries: { date: string; pledged?: number; consumed?: number }[],
+  granularity: 'week' | 'month'
+): TrendPoint[] {
+  const map = new Map<string, TrendPoint>();
+  for (const entry of entries) {
+    const d = new Date(entry.date);
+    const period = granularity === 'week' ? weekLabel(d) : monthLabel(d);
+    if (!map.has(period)) map.set(period, { period, pledged: 0, consumed: 0 });
+    const point = map.get(period)!;
+    point.pledged += entry.pledged || 0;
+    point.consumed += entry.consumed || 0;
+  }
+  return Array.from(map.values()).sort((a, b) => a.period.localeCompare(b.period));
+}
+
+function csvEscape(value: any): string {
+  const str = value === null || value === undefined ? '' : String(value);
+  if (/[",\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
+  return str;
+}
+
+function toCsv(rows: Record<string, any>[]): string {
+  if (rows.length === 0) return '';
+  const headerSet = new Set<string>();
+  rows.forEach(r => Object.keys(r).forEach(k => headerSet.add(k)));
+  const headers = Array.from(headerSet);
+  const lines = [headers.join(',')];
+  for (const row of rows) {
+    lines.push(headers.map(h => csvEscape(row[h])).join(','));
+  }
+  return lines.join('\n');
+}
+
+async function shareCsv(filename: string, csv: string) {
+  const result = await Filesystem.writeFile({
+    path: filename,
+    data: csv,
+    directory: Directory.Cache,
+    encoding: Encoding.UTF8
+  });
+  await Share.share({ title: 'HaqDaar Export', url: result.uri });
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -858,6 +977,242 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   };
 
+  const getDonorTotalPaid = async (): Promise<number> => {
+    if (!user || user.role !== 'donor') return 0;
+    const { data } = await supabase
+      .from('shopkeeper_payments')
+      .select('amount')
+      .eq('donor_id', user.id)
+      .in('status', ['submitted', 'acknowledged']);
+    return (data || []).reduce((s, p) => s + Number(p.amount), 0);
+  };
+
+  const getShopkeeperTotalReceived = async (): Promise<number> => {
+    if (!user || user.role !== 'shopkeeper') return 0;
+    const { data } = await supabase
+      .from('shopkeeper_payments')
+      .select('amount')
+      .eq('shopkeeper_id', user.id)
+      .in('status', ['submitted', 'acknowledged']);
+    return (data || []).reduce((s, p) => s + Number(p.amount), 0);
+  };
+
+  const getDonorAnalytics = async (): Promise<DonorAnalytics> => {
+    const empty: DonorAnalytics = { total_pledged: 0, total_consumed: 0, total_remaining: 0, by_week: [], by_month: [], by_shopkeeper: [], by_donee: [] };
+    if (!user || user.role !== 'donor') return empty;
+
+    const { data: pledges } = await supabase
+      .from('pledge_records')
+      .select('amount, remaining_amount, created_at, donee_id, donees(full_name)')
+      .eq('donor_id', user.id);
+
+    const { data: links } = await supabase
+      .from('pledge_spending_links')
+      .select('amount, created_at')
+      .eq('donor_id', user.id);
+
+    const pledgeRows = pledges || [];
+    const linkRows = links || [];
+
+    const total_pledged = pledgeRows.reduce((s, p) => s + Number(p.amount), 0);
+    const total_remaining = pledgeRows.reduce((s, p) => s + Number(p.remaining_amount), 0);
+    const total_consumed = total_pledged - total_remaining;
+
+    const trendEntries = [
+      ...pledgeRows.map(p => ({ date: p.created_at, pledged: Number(p.amount) })),
+      ...linkRows.map(l => ({ date: l.created_at, consumed: Number(l.amount) }))
+    ];
+
+    const doneeMap = new Map<string, DoneeBreakdown>();
+    for (const p of pledgeRows as any[]) {
+      if (!doneeMap.has(p.donee_id)) {
+        doneeMap.set(p.donee_id, { donee_id: p.donee_id, donee_name: p.donees?.full_name || 'Unknown', pledged: 0, consumed: 0 });
+      }
+      const entry = doneeMap.get(p.donee_id)!;
+      entry.pledged += Number(p.amount);
+      entry.consumed += Number(p.amount) - Number(p.remaining_amount);
+    }
+
+    const by_shopkeeper = await getDonorSpendingByShopkeeper();
+
+    return {
+      total_pledged,
+      total_consumed,
+      total_remaining,
+      by_week: bucketTrend(trendEntries, 'week'),
+      by_month: bucketTrend(trendEntries, 'month'),
+      by_shopkeeper,
+      by_donee: Array.from(doneeMap.values()).sort((a, b) => b.pledged - a.pledged)
+    };
+  };
+
+  const getShopkeeperAnalytics = async (): Promise<ShopkeeperAnalytics> => {
+    const empty: ShopkeeperAnalytics = { total_distributed: 0, total_received: 0, top_donees: [], top_donors: [], by_week: [], by_month: [] };
+    if (!user || user.role !== 'shopkeeper') return empty;
+
+    const { data: spendings } = await supabase
+      .from('spending_records')
+      .select('amount, created_at, donee_id, donees(full_name)')
+      .eq('shopkeeper_id', user.id);
+
+    const spendRows = (spendings || []) as any[];
+    const total_distributed = spendRows.reduce((s, r) => s + Number(r.amount), 0);
+    const total_received = await getShopkeeperTotalReceived();
+
+    const doneeMap = new Map<string, RankedEntity>();
+    for (const r of spendRows) {
+      if (!doneeMap.has(r.donee_id)) doneeMap.set(r.donee_id, { id: r.donee_id, name: r.donees?.full_name || 'Unknown', amount: 0 });
+      doneeMap.get(r.donee_id)!.amount += Number(r.amount);
+    }
+    const top_donees = Array.from(doneeMap.values()).sort((a, b) => b.amount - a.amount).slice(0, 5);
+
+    const donorSummaries = await getShopkeeperSpendingByDonor();
+    const top_donors = donorSummaries
+      .map(d => ({ id: d.donor_id, name: d.donor_name, amount: d.total_amount }))
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 5);
+
+    const trendEntries = spendRows.map(r => ({ date: r.created_at, consumed: Number(r.amount) }));
+
+    return {
+      total_distributed,
+      total_received,
+      top_donees,
+      top_donors,
+      by_week: bucketTrend(trendEntries, 'week'),
+      by_month: bucketTrend(trendEntries, 'month')
+    };
+  };
+
+  const getAdminAnalytics = async (): Promise<AdminAnalytics> => {
+    const empty: AdminAnalytics = { total_pledged: 0, total_spent: 0, total_paid: 0, active_donees: 0, active_shopkeepers: 0, active_donors: 0, by_week: [], by_month: [], top_donors: [], top_shopkeepers: [], top_donees: [] };
+    if (!user || user.role !== 'admin') return empty;
+
+    const { data: pledges } = await supabase
+      .from('pledge_records')
+      .select('amount, created_at, donor_id, profiles!pledge_records_donor_id_fkey(full_name)');
+    const { data: spendings } = await supabase
+      .from('spending_records')
+      .select('amount, created_at, donee_id, shopkeeper_id, donees(full_name), profiles!spending_records_shopkeeper_id_fkey(full_name)');
+    const { data: payments } = await supabase.from('shopkeeper_payments').select('amount');
+    const { count: doneesCount } = await supabase.from('donees').select('*', { count: 'exact', head: true }).eq('status', 'approved');
+    const { count: shopkeepersCount } = await supabase.from('shopkeepers').select('*', { count: 'exact', head: true }).eq('status', 'active');
+    const { count: donorsCount } = await supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'donor');
+
+    const pledgeRows = (pledges || []) as any[];
+    const spendRows = (spendings || []) as any[];
+    const paymentRows = payments || [];
+
+    const total_pledged = pledgeRows.reduce((s, p) => s + Number(p.amount), 0);
+    const total_spent = spendRows.reduce((s, r) => s + Number(r.amount), 0);
+    const total_paid = paymentRows.reduce((s, p) => s + Number(p.amount), 0);
+
+    const trendEntries = [
+      ...pledgeRows.map(p => ({ date: p.created_at, pledged: Number(p.amount) })),
+      ...spendRows.map(r => ({ date: r.created_at, consumed: Number(r.amount) }))
+    ];
+
+    const donorMap = new Map<string, RankedEntity>();
+    for (const p of pledgeRows) {
+      if (!p.donor_id) continue;
+      if (!donorMap.has(p.donor_id)) donorMap.set(p.donor_id, { id: p.donor_id, name: p.profiles?.full_name || 'Unknown', amount: 0 });
+      donorMap.get(p.donor_id)!.amount += Number(p.amount);
+    }
+
+    const shopMap = new Map<string, RankedEntity>();
+    const doneeMap = new Map<string, RankedEntity>();
+    for (const r of spendRows) {
+      if (r.shopkeeper_id) {
+        if (!shopMap.has(r.shopkeeper_id)) shopMap.set(r.shopkeeper_id, { id: r.shopkeeper_id, name: r.profiles?.full_name || 'Unknown', amount: 0 });
+        shopMap.get(r.shopkeeper_id)!.amount += Number(r.amount);
+      }
+      if (r.donee_id) {
+        if (!doneeMap.has(r.donee_id)) doneeMap.set(r.donee_id, { id: r.donee_id, name: r.donees?.full_name || 'Unknown', amount: 0 });
+        doneeMap.get(r.donee_id)!.amount += Number(r.amount);
+      }
+    }
+
+    return {
+      total_pledged,
+      total_spent,
+      total_paid,
+      active_donees: doneesCount || 0,
+      active_shopkeepers: shopkeepersCount || 0,
+      active_donors: donorsCount || 0,
+      by_week: bucketTrend(trendEntries, 'week'),
+      by_month: bucketTrend(trendEntries, 'month'),
+      top_donors: Array.from(donorMap.values()).sort((a, b) => b.amount - a.amount).slice(0, 5),
+      top_shopkeepers: Array.from(shopMap.values()).sort((a, b) => b.amount - a.amount).slice(0, 5),
+      top_donees: Array.from(doneeMap.values()).sort((a, b) => b.amount - a.amount).slice(0, 5)
+    };
+  };
+
+  const exportMyRecords = async () => {
+    if (!user) return;
+
+    if (user.role === 'donor') {
+      const { data: pledges } = await supabase
+        .from('pledge_records')
+        .select('created_at, amount, remaining_amount, status, donees(full_name)')
+        .eq('donor_id', user.id)
+        .order('created_at', { ascending: false });
+
+      const { data: payments } = await supabase
+        .from('shopkeeper_payments')
+        .select('created_at, amount, status, profiles!shopkeeper_payments_shopkeeper_id_fkey(full_name)')
+        .eq('donor_id', user.id)
+        .order('created_at', { ascending: false });
+
+      const rows = [
+        ...(pledges || []).map((p: any) => ({ record_type: 'pledge', date: p.created_at, donee: p.donees?.full_name || '', amount: p.amount, remaining: p.remaining_amount, status: p.status })),
+        ...(payments || []).map((p: any) => ({ record_type: 'payment_made', date: p.created_at, shopkeeper: p.profiles?.full_name || '', amount: p.amount, status: p.status }))
+      ];
+
+      await shareCsv(`haqdaar-donor-records-${Date.now()}.csv`, toCsv(rows));
+      return;
+    }
+
+    if (user.role === 'shopkeeper') {
+      const { data: spendings } = await supabase
+        .from('spending_records')
+        .select('created_at, amount, items_description, payment_status, donees(full_name), profiles!spending_records_donor_id_fkey(full_name)')
+        .eq('shopkeeper_id', user.id)
+        .order('created_at', { ascending: false });
+
+      const { data: payments } = await supabase
+        .from('shopkeeper_payments')
+        .select('created_at, amount, status, profiles!shopkeeper_payments_donor_id_fkey(full_name)')
+        .eq('shopkeeper_id', user.id)
+        .order('created_at', { ascending: false });
+
+      const rows = [
+        ...(spendings || []).map((s: any) => ({ record_type: 'spending', date: s.created_at, donee: s.donees?.full_name || '', donor: s.profiles?.full_name || '', amount: s.amount, items: s.items_description, status: s.payment_status })),
+        ...(payments || []).map((p: any) => ({ record_type: 'payment_received', date: p.created_at, donor: p.profiles?.full_name || '', amount: p.amount, status: p.status }))
+      ];
+
+      await shareCsv(`haqdaar-shopkeeper-records-${Date.now()}.csv`, toCsv(rows));
+      return;
+    }
+
+    if (user.role === 'admin') {
+      const { data: pledges } = await supabase
+        .from('pledge_records')
+        .select('created_at, amount, remaining_amount, status, donees(full_name), profiles!pledge_records_donor_id_fkey(full_name)');
+      const { data: spendings } = await supabase
+        .from('spending_records')
+        .select('created_at, amount, items_description, payment_status, donees(full_name), profiles!spending_records_shopkeeper_id_fkey(full_name)');
+      const { data: payments } = await supabase.from('shopkeeper_payments').select('created_at, amount, status');
+
+      const rows = [
+        ...(pledges || []).map((p: any) => ({ record_type: 'pledge', date: p.created_at, donor: p.profiles?.full_name || '', donee: p.donees?.full_name || '', amount: p.amount, remaining: p.remaining_amount, status: p.status })),
+        ...(spendings || []).map((s: any) => ({ record_type: 'spending', date: s.created_at, donee: s.donees?.full_name || '', shopkeeper: s.profiles?.full_name || '', amount: s.amount, status: s.payment_status })),
+        ...(payments || []).map((p: any) => ({ record_type: 'payment', date: p.created_at, amount: p.amount, status: p.status }))
+      ];
+
+      await shareCsv(`haqdaar-platform-records-${Date.now()}.csv`, toCsv(rows));
+    }
+  };
+
   const seedDatabase = async () => {
     try {
       for (const u of LOCAL_USERS) {
@@ -941,6 +1296,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       updateShopkeeper,
       getAuditLogs,
       getReports,
+      getDonorTotalPaid,
+      getShopkeeperTotalReceived,
+      getDonorAnalytics,
+      getShopkeeperAnalytics,
+      getAdminAnalytics,
+      exportMyRecords,
       isLocalFallback,
       error
     }}>

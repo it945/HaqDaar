@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
-import { Home, QrCode, History, User, Scan, LayoutDashboard, LogOut, Menu, X, ArrowLeft, Bell, Sparkles, Send, Loader2, Heart, Plus, Minus, Wallet, Landmark, ClipboardList, CheckCircle2, ShoppingBag, Receipt, ArrowRight, Camera, Upload, Edit, Users, FileText, Activity, ShieldCheck, HelpCircle, Copy, Check, RefreshCw, Image as ImageIcon, CreditCard, Store, AlertTriangle } from 'lucide-react';
+import { Home, QrCode, History, User, Scan, LayoutDashboard, LogOut, Menu, X, ArrowLeft, Bell, Sparkles, Send, Loader2, Heart, Plus, Minus, Wallet, Landmark, ClipboardList, CheckCircle2, ShoppingBag, Receipt, ArrowRight, Camera, Upload, Edit, Users, FileText, Activity, ShieldCheck, HelpCircle, Copy, Check, RefreshCw, Image as ImageIcon, CreditCard, Store, AlertTriangle, Download, Trophy, BarChart3, Calendar } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { useAuth, Donee, ShopkeeperSpendingSummary, ShopkeeperDonorSummary, ShopkeeperPayment, Notification as NotificationType } from './context/AuthContext';
+import { useAuth, Donee, ShopkeeperSpendingSummary, ShopkeeperDonorSummary, ShopkeeperPayment, Notification as NotificationType, DonorAnalytics, ShopkeeperAnalytics, AdminAnalytics, TrendPoint, RankedEntity } from './context/AuthContext';
 import { cn, formatCurrency } from './lib/utils';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { QRCodeSVG } from 'qrcode.react';
@@ -102,6 +102,7 @@ const HomePage = ({ onViewImage }: { onViewImage: (src: string) => void }) => {
     getDonorSpendingByShopkeeper, submitShopkeeperPaymentProof, getShopkeeperPayments,
     acknowledgeShopkeeperPayment,
     registerDonee, updateDonee, getAdminDonees, getAuditLogs, getReports,
+    getDonorTotalPaid, getShopkeeperTotalReceived, exportMyRecords,
     notifications, unreadNotificationCount, markNotificationRead
   } = useAuth();
 
@@ -127,6 +128,10 @@ const HomePage = ({ onViewImage }: { onViewImage: (src: string) => void }) => {
   // Admin all pledges
   const [allPledges, setAllPledges] = useState<any[]>([]);
 
+  // Secondary hero stat: amount paid (donor) / amount received (shopkeeper)
+  const [secondaryStat, setSecondaryStat] = useState(0);
+  const [isExporting, setIsExporting] = useState(false);
+
   const copyToClipboard = async (text: string) => {
     await Clipboard.write({ string: text });
     setIsCopied(true);
@@ -139,6 +144,17 @@ const HomePage = ({ onViewImage }: { onViewImage: (src: string) => void }) => {
       setShopPayments(prev => prev.map(p => p.id === paymentId ? { ...p, status: 'acknowledged' } : p));
     } catch (e: any) {
       alert(e.message);
+    }
+  };
+
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      await exportMyRecords();
+    } catch (e: any) {
+      alert('Export failed: ' + e.message);
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -156,6 +172,15 @@ const HomePage = ({ onViewImage }: { onViewImage: (src: string) => void }) => {
       getShopkeeperPayments().then(setShopPayments);
     }
   }, [user, isShop]);
+
+  // Secondary hero stat: total paid (donor) / total received (shopkeeper)
+  useEffect(() => {
+    if (isDonor) {
+      getDonorTotalPaid().then(setSecondaryStat);
+    } else if (isShop) {
+      getShopkeeperTotalReceived().then(setSecondaryStat);
+    }
+  }, [user, isDonor, isShop, notifications]);
 
   // Load payments due for donors (refresh when pledges change or notifications arrive)
   useEffect(() => {
@@ -383,8 +408,33 @@ const HomePage = ({ onViewImage }: { onViewImage: (src: string) => void }) => {
           <p className="text-[10px] mt-4 opacity-70 uppercase tracking-widest font-bold">
             {isDonor ? 'Total Pledged Amount' : isShop ? 'Total Goods Distributed' : 'Total Pledged Transparency Records'}
           </p>
+          {(isDonor || isShop) && (
+            <div className="mt-5 pt-4 border-t border-white/15">
+              <p className="text-[10px] font-bold opacity-70 uppercase tracking-widest">
+                {isDonor ? 'Total Amount Paid' : 'Total Payment Received'}
+              </p>
+              <p className="text-xl font-display font-bold mt-1">{formatCurrency(secondaryStat)}</p>
+            </div>
+          )}
         </div>
         <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-32 -mt-32 blur-3xl"></div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <Link to="/analytics" className="bg-white p-5 rounded-[28px] shadow-sm border border-gray-100 flex items-center space-x-3 active:scale-95 transition-all">
+          <div className="p-3 bg-primary/5 rounded-2xl"><Activity className="w-6 h-6 text-primary" /></div>
+          <span className="font-bold text-xs uppercase tracking-widest text-gray-700">Analytics</span>
+        </Link>
+        <button
+          onClick={handleExport}
+          disabled={isExporting}
+          className="bg-white p-5 rounded-[28px] shadow-sm border border-gray-100 flex items-center space-x-3 active:scale-95 transition-all disabled:opacity-50"
+        >
+          <div className="p-3 bg-blue-50 rounded-2xl">
+            {isExporting ? <Loader2 className="w-6 h-6 text-blue-600 animate-spin" /> : <Download className="w-6 h-6 text-blue-600" />}
+          </div>
+          <span className="font-bold text-xs uppercase tracking-widest text-gray-700">{isExporting ? 'Exporting...' : 'Export Records'}</span>
+        </button>
       </div>
 
       {/* DONOR: Verified Donees */}
@@ -1125,6 +1175,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
     { icon: ShoppingBag, label: 'Shops', path: '/admin/shopkeepers', showOnly: ['admin'] },
     { icon: Sparkles, label: 'Impact', path: '/impact', showOnly: ['donor'] },
     { icon: History, label: 'History', path: '/history' },
+    { icon: BarChart3, label: 'Analytics', path: '/analytics' },
     { icon: User, label: 'Profile', path: '/profile' },
   ].filter(item => !item.showOnly || item.showOnly.includes(user?.role?.toLowerCase() || ''));
 
@@ -1848,6 +1899,174 @@ const HistoryPage = ({ onViewImage }: { onViewImage: (src: string) => void }) =>
   );
 };
 
+const StatCard = ({ label, value, accent }: { label: string; value: string; accent?: string }) => (
+  <div className={cn("p-4 rounded-2xl", accent || "bg-gray-50")}>
+    <p className="text-[9px] font-black uppercase tracking-widest text-gray-400">{label}</p>
+    <p className="text-lg font-display font-bold text-slate-900 mt-0.5">{value}</p>
+  </div>
+);
+
+const RankedList = ({ title, items, icon: Icon }: { title: string; items: RankedEntity[]; icon: any }) => (
+  <div className="space-y-3">
+    <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">{title}</h3>
+    {items.length === 0 ? (
+      <div className="text-center py-6 bg-white rounded-3xl border border-dashed border-gray-200">
+        <p className="text-gray-400 text-xs italic">No data yet.</p>
+      </div>
+    ) : (
+      <div className="space-y-2">
+        {items.map((item, idx) => (
+          <div key={item.id} className="flex items-center p-3 bg-white rounded-2xl border border-gray-100 shadow-sm">
+            <div className={cn("w-8 h-8 rounded-xl flex items-center justify-center mr-3 flex-shrink-0", idx === 0 ? "bg-amber-50 text-amber-600" : "bg-gray-50 text-gray-400")}>
+              {idx === 0 ? <Icon className="w-4 h-4" /> : <span className="text-xs font-bold">{idx + 1}</span>}
+            </div>
+            <p className="flex-1 font-bold text-sm text-slate-800 truncate">{item.name}</p>
+            <p className="font-display font-bold text-primary text-sm">{formatCurrency(item.amount)}</p>
+          </div>
+        ))}
+      </div>
+    )}
+  </div>
+);
+
+const AnalyticsPage = () => {
+  const { user, getDonorAnalytics, getShopkeeperAnalytics, getAdminAnalytics } = useAuth();
+  const [granularity, setGranularity] = useState<'week' | 'month'>('month');
+  const [donorData, setDonorData] = useState<DonorAnalytics | null>(null);
+  const [shopData, setShopData] = useState<ShopkeeperAnalytics | null>(null);
+  const [adminData, setAdminData] = useState<AdminAnalytics | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const role = user?.role?.toLowerCase();
+
+  useEffect(() => {
+    setLoading(true);
+    if (role === 'donor') {
+      getDonorAnalytics().then(setDonorData).finally(() => setLoading(false));
+    } else if (role === 'shopkeeper') {
+      getShopkeeperAnalytics().then(setShopData).finally(() => setLoading(false));
+    } else if (role === 'admin') {
+      getAdminAnalytics().then(setAdminData).finally(() => setLoading(false));
+    }
+  }, [role]);
+
+  if (!user) return <Navigate to="/login" />;
+
+  const trendData: TrendPoint[] = (
+    role === 'donor' ? donorData && (granularity === 'week' ? donorData.by_week : donorData.by_month)
+    : role === 'shopkeeper' ? shopData && (granularity === 'week' ? shopData.by_week : shopData.by_month)
+    : role === 'admin' ? adminData && (granularity === 'week' ? adminData.by_week : adminData.by_month)
+    : null
+  ) || [];
+
+  return (
+    <div className="space-y-8 py-6">
+      <div className="flex items-center space-x-2">
+        <BarChart3 className="w-5 h-5 text-primary" />
+        <h1 className="text-2xl font-display font-bold text-gray-800">Analytics</h1>
+      </div>
+
+      {loading ? (
+        <div className="py-20 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
+      ) : (
+        <>
+          {/* Stat cards */}
+          {role === 'donor' && donorData && (
+            <div className="grid grid-cols-3 gap-3">
+              <StatCard label="Pledged" value={formatCurrency(donorData.total_pledged)} accent="bg-primary/5" />
+              <StatCard label="Consumed" value={formatCurrency(donorData.total_consumed)} accent="bg-amber-50" />
+              <StatCard label="Remaining" value={formatCurrency(donorData.total_remaining)} />
+            </div>
+          )}
+          {role === 'shopkeeper' && shopData && (
+            <div className="grid grid-cols-2 gap-3">
+              <StatCard label="Total Distributed" value={formatCurrency(shopData.total_distributed)} accent="bg-primary/5" />
+              <StatCard label="Total Received" value={formatCurrency(shopData.total_received)} accent="bg-amber-50" />
+            </div>
+          )}
+          {role === 'admin' && adminData && (
+            <div className="grid grid-cols-3 gap-3">
+              <StatCard label="Pledged" value={formatCurrency(adminData.total_pledged)} accent="bg-primary/5" />
+              <StatCard label="Spent" value={formatCurrency(adminData.total_spent)} accent="bg-amber-50" />
+              <StatCard label="Paid" value={formatCurrency(adminData.total_paid)} />
+              <StatCard label="Active Donees" value={String(adminData.active_donees)} />
+              <StatCard label="Active Shops" value={String(adminData.active_shopkeepers)} />
+              <StatCard label="Donors" value={String(adminData.active_donors)} />
+            </div>
+          )}
+
+          {/* Trend chart */}
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                {role === 'shopkeeper' ? 'Monthly Performance' : 'Pledged vs Consumed'}
+              </h3>
+              <div className="flex bg-gray-100 rounded-full p-1">
+                <button
+                  onClick={() => setGranularity('week')}
+                  className={cn("px-3 py-1 rounded-full text-[9px] font-black uppercase transition-all", granularity === 'week' ? "bg-white shadow-sm text-primary" : "text-gray-400")}
+                >Weekly</button>
+                <button
+                  onClick={() => setGranularity('month')}
+                  className={cn("px-3 py-1 rounded-full text-[9px] font-black uppercase transition-all", granularity === 'month' ? "bg-white shadow-sm text-primary" : "text-gray-400")}
+                >Monthly</button>
+              </div>
+            </div>
+            {trendData.length === 0 ? (
+              <div className="text-center py-12 bg-white rounded-3xl border border-dashed border-gray-200">
+                <Calendar className="w-8 h-8 text-gray-200 mx-auto mb-2" />
+                <p className="text-gray-400 text-xs italic">No activity recorded yet for this period.</p>
+              </div>
+            ) : (
+              <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-4">
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={trendData}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="period" tick={{ fontSize: 9 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 9 }} axisLine={false} tickLine={false} />
+                    <Tooltip formatter={(v: number) => formatCurrency(Number(v))} />
+                    {role !== 'shopkeeper' && <Bar dataKey="pledged" fill="#006A4E" radius={[6, 6, 0, 0]} name="Pledged" />}
+                    <Bar dataKey="consumed" fill="#f59e0b" radius={[6, 6, 0, 0]} name={role === 'shopkeeper' ? 'Distributed' : 'Consumed'} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </section>
+
+          {/* Breakdowns */}
+          {role === 'donor' && donorData && (
+            <>
+              <RankedList
+                title="By Shopkeeper (Unpaid)"
+                items={donorData.by_shopkeeper.map(s => ({ id: s.shopkeeper_id, name: s.shop_name, amount: s.total_unpaid }))}
+                icon={Trophy}
+              />
+              <RankedList
+                title="By Donee"
+                items={donorData.by_donee.map(d => ({ id: d.donee_id, name: d.donee_name, amount: d.pledged }))}
+                icon={Trophy}
+              />
+            </>
+          )}
+          {role === 'shopkeeper' && shopData && (
+            <>
+              <RankedList title="Top Donees" items={shopData.top_donees} icon={Trophy} />
+              <RankedList title="Top Donors" items={shopData.top_donors} icon={Trophy} />
+            </>
+          )}
+          {role === 'admin' && adminData && (
+            <>
+              <RankedList title="Top Donors" items={adminData.top_donors} icon={Trophy} />
+              <RankedList title="Top Shopkeepers" items={adminData.top_shopkeepers} icon={Trophy} />
+              <RankedList title="Top Donees" items={adminData.top_donees} icon={Trophy} />
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+
 const TrustPage = () => (
   <div className="py-10 space-y-8 animate-in fade-in duration-500">
     <div className="text-center space-y-2">
@@ -1900,6 +2119,7 @@ export default function App() {
         <Route path="/scan" element={user ? <Layout><ScanPage /></Layout> : <Navigate to="/login" />} />
         <Route path="/impact" element={user ? <Layout><ImpactPage /></Layout> : <Navigate to="/login" />} />
         <Route path="/history" element={user ? <Layout><HistoryPage onViewImage={setActiveViewerImage} /></Layout> : <Navigate to="/login" />} />
+        <Route path="/analytics" element={user ? <Layout><AnalyticsPage /></Layout> : <Navigate to="/login" />} />
         <Route path="/admin/manage" element={user?.role?.toLowerCase() === 'admin' ? <Layout><AdminManagePage /></Layout> : <Navigate to="/login" />} />
         <Route path="/admin/shopkeepers" element={user?.role?.toLowerCase() === 'admin' ? <Layout><AdminShopkeeperPage /></Layout> : <Navigate to="/login" />} />
         <Route path="/profile" element={user ? <Layout><ProfilePage /></Layout> : <Navigate to="/login" />} />
