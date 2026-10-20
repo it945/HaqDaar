@@ -25,9 +25,6 @@ jobs:
 
       - name: Build web assets
         run: npm run build
-        env:
-          VITE_SUPABASE_URL: "https://xgbwqwisczlkltesycxk.supabase.co"
-          VITE_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhnYndxd2lzY3psa2x0ZXN5Y3hrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc4MTE0MDIsImV4cCI6MjA5MzM4NzQwMn0.fUdDCPRi87eYWFRiYNxUgqOVSZWgCPrj_bV4HK_rMOQ"
 
       - name: Sync Capacitor Android project
         run: npx cap sync android
